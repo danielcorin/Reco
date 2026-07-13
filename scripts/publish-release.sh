@@ -171,6 +171,8 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     git -C "$REPO_ROOT" diff --cached --quiet || fail "staged changes must be committed before publishing"
 
     TAG="v$VERSION"
+    TARGET_BRANCH="$(git -C "$REPO_ROOT" branch --show-current)"
+    [[ -n "$TARGET_BRANCH" ]] || fail "publishing from a detached HEAD is not supported"
     GH_ARGS=()
     if [[ -n "$GH_REPOSITORY" ]]; then
         GH_ARGS=(--repo "$GH_REPOSITORY")
@@ -183,7 +185,7 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     else
         gh release create "$TAG" \
             "$ZIP_PATH" "$DMG_PATH" "$OUT_DIR/$CHECKSUM_NAME" \
-            --target "$(git -C "$REPO_ROOT" rev-parse HEAD)" \
+            --target "$TARGET_BRANCH" \
             --title "Reco $VERSION" \
             --generate-notes \
             "${GH_ARGS[@]}"

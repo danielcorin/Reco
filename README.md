@@ -47,21 +47,20 @@ xcodebuild \
 
 ## Publishing a release
 
-The release script reads the version, build number, bundle ID, and development team from the resolved Xcode settings. Signing details stay in the ignored `Configuration/Local.xcconfig`; no Apple team ID is stored in the script or repository.
+The release script reads the version, build number, and bundle ID from the resolved Xcode settings. It prefers signing details from the release environment and falls back to the ignored `Configuration/Local.xcconfig`; no real Apple team ID or credentials are stored in the repository.
 
-Create a reusable Keychain profile once. The command securely prompts for an [app-specific password](https://support.apple.com/102654) and does not place it on the command line:
+Copy the release environment template, fill in your Apple credentials and repository, then allow direnv:
 
 ```sh
-scripts/publish-release.sh \
-  --setup-notary-profile RecoNotary \
-  --apple-id you@example.com
+cp .env.example .env
+direnv allow
 ```
+
+The ignored `.env` uses `APPLE_ID`, `APPLE_ID_PASSWORD`, `DEVELOPER_ID_APPLICATION`, and `TEAM_ID`. On the first release, the script validates those values and stores the [app-specific password](https://support.apple.com/102654) in the `RecoNotary` Keychain profile. Later releases reuse the Keychain profile. `NOTARY_PROFILE` defaults to `RecoNotary`, and the older `NOTARY_APPLE_ID`, `DEVELOPER_IDENTITY`, and `DEVELOPMENT_TEAM` names remain supported.
 
 Before each release, update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in Xcode, then commit and push those changes. Run the full release with:
 
 ```sh
-NOTARY_PROFILE=RecoNotary \
-GH_REPO=danielcorin/Reco \
 scripts/publish-release.sh --publish
 ```
 

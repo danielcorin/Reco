@@ -7,7 +7,7 @@ usage() {
 Usage:
   scripts/publish-release.sh [options]
   scripts/publish-release.sh /path/to/Reco.app [options]
-  scripts/publish-release.sh --setup-notary-profile PROFILE --apple-id APPLE_ID
+  scripts/publish-release.sh --setup-notary-profile PROFILE
 
 With no app path, the script performs the complete release workflow: archive a
 universal Release build, Developer ID-sign and upload it with Xcode, wait for
@@ -22,9 +22,10 @@ Release options:
   --project PATH             Xcode project (default: Reco.xcodeproj).
   --scheme NAME              Xcode scheme (default: Reco).
   --configuration NAME       Build configuration (default: Release).
-  --team-id ID               Override the resolved DEVELOPMENT_TEAM.
-  --identity IDENTITY        Developer ID Application signing identity.
-  --notary-profile PROFILE   notarytool Keychain profile for the outer DMG.
+  --team-id ID               Override TEAM_ID and the resolved Xcode team.
+  --identity IDENTITY        Override DEVELOPER_ID_APPLICATION.
+  --notary-profile PROFILE   notarytool Keychain profile for the outer DMG
+                             (default: RecoNotary).
   --notary-timeout SECONDS   App notarization wait limit (default: 1800).
   --output-dir PATH          Artifact directory (default: dist).
   --publish                  Create the corresponding GitHub Release.
@@ -39,12 +40,16 @@ Release options:
 Credential setup:
   --setup-notary-profile PROFILE
                              Store an app-specific password in Keychain.
-  --apple-id APPLE_ID        Apple ID used by credential setup. The password is
-                             requested with a secure interactive prompt.
+  --apple-id APPLE_ID        Override APPLE_ID for credential setup. The
+                             password comes from APPLE_ID_PASSWORD when set;
+                             otherwise it is requested with a secure prompt.
 
 Environment equivalents:
-  DEVELOPER_IDENTITY, DEVELOPMENT_TEAM, NOTARY_PROFILE, NOTARY_APPLE_ID,
-  NOTARY_TIMEOUT, RELEASE_OUTPUT_DIR, GH_REPO
+  APPLE_ID, APPLE_ID_PASSWORD, DEVELOPER_ID_APPLICATION, TEAM_ID,
+  NOTARY_PROFILE, NOTARY_TIMEOUT, RELEASE_OUTPUT_DIR, GH_REPO
+
+Legacy environment aliases:
+  NOTARY_APPLE_ID, DEVELOPER_IDENTITY, DEVELOPMENT_TEAM
 
 The project version and build number must already be committed. --version and
 --build verify those values; they never rewrite or silently override the source.
@@ -62,6 +67,38 @@ require_value() {
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+store_notary_profile() {
+    local profile="$1"
+
+    if [[ -n "$APPLE_ID_PASSWORD" ]]; then
+        echo "Using APPLE_ID_PASSWORD to seed the Keychain profile."
+        xcrun notarytool store-credentials "$profile" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APPLE_ID_PASSWORD"
+    else
+        echo "notarytool will securely prompt for an app-specific password."
+        xcrun notarytool store-credentials "$profile" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID"
+    fi
+}
+
+ensure_notary_profile() {
+    if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+        return
+    fi
+
+    if [[ -z "$APPLE_ID" || -z "$APPLE_ID_PASSWORD" ]]; then
+        fail "notary profile '$NOTARY_PROFILE' is unavailable; set APPLE_ID and APPLE_ID_PASSWORD or run --setup-notary-profile"
+    fi
+
+    echo "Notary profile '$NOTARY_PROFILE' is unavailable; creating it from release environment variables..."
+    store_notary_profile "$NOTARY_PROFILE"
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null || \
+        fail "notary profile '$NOTARY_PROFILE' is unavailable or invalid"
 }
 
 load_build_settings() {
@@ -290,10 +327,14 @@ SCHEME="Reco"
 CONFIGURATION="Release"
 EXPECTED_VERSION=""
 EXPECTED_BUILD=""
-TEAM_ID="${DEVELOPMENT_TEAM:-}"
-IDENTITY="${DEVELOPER_IDENTITY:-}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-}"
-APPLE_ID="${NOTARY_APPLE_ID:-}"
+TEAM_ID="${TEAM_ID:-${DEVELOPMENT_TEAM:-}}"
+IDENTITY="${DEVELOPER_ID_APPLICATION:-${DEVELOPER_IDENTITY:-}}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-RecoNotary}"
+APPLE_ID="${APPLE_ID:-${NOTARY_APPLE_ID:-}}"
+APPLE_ID_PASSWORD="${APPLE_ID_PASSWORD:-}"
+# Keep the password available to this script without leaking it to unrelated
+# child processes. It is passed only to notarytool when seeding Keychain.
+export -n APPLE_ID_PASSWORD
 NOTARY_TIMEOUT_SECONDS="${NOTARY_TIMEOUT:-1800}"
 NOTARY_POLL_SECONDS=20
 GH_REPOSITORY="${GH_REPO:-}"
@@ -443,7 +484,7 @@ XCODE_CONTEXT=(-project "$PROJECT_PATH" -scheme "$SCHEME" -configuration "$CONFI
 if [[ -n "$SETUP_PROFILE" ]]; then
     [[ -z "$APP_PATH" ]] || fail "credential setup cannot be combined with an app path"
     [[ "$PUBLISH" -eq 0 ]] || fail "credential setup cannot be combined with --publish"
-    [[ -n "$APPLE_ID" ]] || fail "--apple-id or NOTARY_APPLE_ID is required for credential setup"
+    [[ -n "$APPLE_ID" ]] || fail "--apple-id or APPLE_ID is required for credential setup"
 
     resolve_source_metadata
     [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || fail "invalid Developer Team ID: $TEAM_ID"
@@ -457,10 +498,7 @@ if [[ -n "$SETUP_PROFILE" ]]; then
         exit 0
     fi
 
-    echo "notarytool will securely prompt for an app-specific password."
-    xcrun notarytool store-credentials "$SETUP_PROFILE" \
-        --apple-id "$APPLE_ID" \
-        --team-id "$TEAM_ID"
+    store_notary_profile "$SETUP_PROFILE"
     echo "Stored and validated notary profile '$SETUP_PROFILE'."
     echo "Use it with: NOTARY_PROFILE='$SETUP_PROFILE' scripts/publish-release.sh --publish"
     exit 0
@@ -542,8 +580,7 @@ done
 
 if [[ "$SKIP_DMG_NOTARIZATION" -eq 0 ]]; then
     echo "Validating notary profile '$NOTARY_PROFILE'..."
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null || \
-        fail "notary profile '$NOTARY_PROFILE' is unavailable or invalid"
+    ensure_notary_profile
 fi
 
 TMP_BASE="${TMPDIR:-/tmp}"

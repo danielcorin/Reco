@@ -45,6 +45,28 @@ xcodebuild \
   build
 ```
 
+## Publishing a release
+
+The release script reads the version, build number, bundle ID, and development team from the resolved Xcode settings. Signing details stay in the ignored `Configuration/Local.xcconfig`; no Apple team ID is stored in the script or repository.
+
+Create a reusable Keychain profile once. The command securely prompts for an [app-specific password](https://support.apple.com/102654) and does not place it on the command line:
+
+```sh
+scripts/publish-release.sh \
+  --setup-notary-profile RecoNotary \
+  --apple-id you@example.com
+```
+
+Before each release, update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in Xcode, then commit and push those changes. Run the full release with:
+
+```sh
+NOTARY_PROFILE=RecoNotary \
+GH_REPO=danielcorin/Reco \
+scripts/publish-release.sh --publish
+```
+
+That command requires a clean branch synchronized with its upstream, creates a universal archive, uploads it through the Xcode account configured on the Mac, waits for Apple notarization, exports and verifies the stapled app, creates the ZIP and DMG, separately notarizes the outer DMG, verifies checksums, and creates the GitHub Release. Use `--dry-run` to inspect the resolved plan or pass an existing notarized `.app` path to skip the archive and app-notarization stages. `--skip-dmg-notarization` is available only as an explicit exception and is not recommended for public releases.
+
 ## Permissions and privacy
 
 Reco requires broad macOS permissions because it listens for a global shortcut and synthesizes Command-V to insert transcribed text. The app is not sandboxed; macOS Accessibility consent provides the relevant user control for keyboard monitoring and event posting.

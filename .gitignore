@@ -1,0 +1,20 @@
+.DS_Store
+
+# Xcode user and build output
+DerivedData/
+build/
+dist/
+*.xcarchive
+*.dSYM
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager local output
+.build/
+.swiftpm/
+
+# Per-developer signing configuration
+Configuration/Local.xcconfig
+
+# Local development notes
+/prompts.md

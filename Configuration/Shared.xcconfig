@@ -1,0 +1,5 @@
+// Safe defaults for source builds. Local.xcconfig is intentionally ignored.
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = org.example.Reco
+
+#include? "Local.xcconfig"

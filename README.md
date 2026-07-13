@@ -8,6 +8,10 @@ Reco is a minimal macOS menu bar dictation app. Hold a configurable global short
 
 Transcription runs locally with NVIDIA Parakeet TDT 0.6B v3 through FluidAudio and Core ML. The model is downloaded from Hugging Face on first launch; after that download, recorded audio is processed on-device. Temporary recordings are deleted after transcription.
 
+## Download
+
+Download the signed and notarized macOS app from the [GitHub Releases page](https://github.com/danielcorin/Reco/releases).
+
 ## Why
 
 I built this because I wanted an open source, open weights, minimal, hotkey-based transcription app that wasn't bloated, prone to frequent breaking, bound to a cloud provider, or trying to upsell me. At least if this one breaks, it's my fault and I can fix it on my terms.

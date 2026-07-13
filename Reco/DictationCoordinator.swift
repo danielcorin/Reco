@@ -30,6 +30,7 @@ final class DictationCoordinator: ObservableObject {
     private var started = false
     private var isHotkeyHeld = false
     private var isStartingRecording = false
+    private var isRequestingPermissions = false
 
     private static let hotkeyDefaultsKey = "hotkey"
     private static let doubleTapWindow: Duration = .milliseconds(280)
@@ -87,9 +88,6 @@ final class DictationCoordinator: ObservableObject {
         }
 
         refreshPermissions()
-        if !hotkeyMonitor.start() {
-            needsPermissions = true
-        }
 
         Task {
             do {
@@ -111,27 +109,64 @@ final class DictationCoordinator: ObservableObject {
     }
 
     func beginShortcutCapture() {
-        isCapturingShortcut = true
         errorMessage = nil
-        hotkeyMonitor.captureNextShortcut()
+        guard hotkeyMonitor.captureNextShortcut() else {
+            isCapturingShortcut = false
+            needsPermissions = true
+            errorMessage = "Allow Accessibility access before setting a shortcut."
+            return
+        }
+        isCapturingShortcut = true
     }
 
     func requestPermissions() {
-        _ = CGRequestListenEventAccess()
-        _ = CGRequestPostEventAccess()
+        guard !isRequestingPermissions else { return }
+        isRequestingPermissions = true
 
         Task {
-            _ = await AVCaptureDevice.requestAccess(for: .audio)
+            if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                _ = await AVCaptureDevice.requestAccess(for: .audio)
+            }
+
+            if !CGPreflightPostEventAccess() {
+                _ = CGRequestPostEventAccess()
+            }
+
+            try? await Task.sleep(for: .milliseconds(300))
             refreshPermissions()
-            _ = hotkeyMonitor.start()
+            isRequestingPermissions = false
+
+            if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+                openPrivacySettings(anchor: "Privacy_Microphone")
+            } else if !CGPreflightPostEventAccess() {
+                openPrivacySettings(anchor: "Privacy_Accessibility")
+            }
         }
     }
 
     func refreshPermissions() {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio)
+        let hasInputAccess = CGPreflightPostEventAccess()
+
+        if hasInputAccess && !hotkeyMonitor.isRunning {
+            _ = hotkeyMonitor.start()
+        }
+
         needsPermissions = mic != .authorized
-            || !CGPreflightListenEventAccess()
-            || !CGPreflightPostEventAccess()
+            || !hasInputAccess
+            || !hotkeyMonitor.isRunning
+    }
+
+    private func openPrivacySettings(anchor: String) {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
+        ) else { return }
+
+        if !NSWorkspace.shared.open(url) {
+            NSWorkspace.shared.open(
+                URL(fileURLWithPath: "/System/Applications/System Settings.app")
+            )
+        }
     }
 
     private func finishShortcutCapture(_ shortcut: Hotkey?) {

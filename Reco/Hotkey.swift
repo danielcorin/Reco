@@ -75,6 +75,11 @@ final class HotkeyMonitor {
     private var isKeyDown = false
     private var capturing = false
 
+    var isRunning: Bool {
+        guard let eventTap else { return false }
+        return CGEvent.tapIsEnabled(tap: eventTap)
+    }
+
     @discardableResult
     func start() -> Bool {
         stop()
@@ -115,10 +120,14 @@ final class HotkeyMonitor {
         runLoopSource = nil
         eventTap = nil
         isKeyDown = false
+        capturing = false
     }
 
-    func captureNextShortcut() {
+    @discardableResult
+    func captureNextShortcut() -> Bool {
+        guard isRunning else { return false }
         capturing = true
+        return true
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {

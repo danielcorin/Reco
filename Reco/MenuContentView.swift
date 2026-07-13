@@ -94,11 +94,11 @@ struct MenuContentView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Reco needs microphone and input access to listen for the shortcut and paste text.")
+                    Text("Reco needs microphone and Accessibility access to listen for the shortcut and paste text.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    Button("Allow Access") {
+                    Button("Open Privacy Settings") {
                         coordinator.requestPermissions()
                     }
                     .buttonStyle(.borderedProminent)

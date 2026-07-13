@@ -25,7 +25,7 @@ I made Reco using a few different coding agent tools and LLMs.
 - macOS 14 or later
 - Xcode with Swift 6 support
 - An Apple Silicon Mac is recommended for Core ML performance
-- Microphone, Input Monitoring, and Accessibility permissions
+- Microphone and Accessibility permissions
 
 ## Build
 
@@ -47,7 +47,7 @@ xcodebuild \
 
 ## Permissions and privacy
 
-Reco requires broad macOS permissions because it listens for a global shortcut and synthesizes Command-V to insert transcribed text. The app is not sandboxed; macOS Input Monitoring and Accessibility consent provide the relevant user controls.
+Reco requires broad macOS permissions because it listens for a global shortcut and synthesizes Command-V to insert transcribed text. The app is not sandboxed; macOS Accessibility consent provides the relevant user control for keyboard monitoring and event posting.
 
 Audio is recorded to a randomly named temporary file, transcribed locally, and deleted when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
 

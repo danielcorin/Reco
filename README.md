@@ -69,7 +69,7 @@ That command requires a clean branch synchronized with its upstream, creates a u
 
 ## Permissions and privacy
 
-Reco requires broad macOS permissions because it listens for a global shortcut and synthesizes Command-V to insert transcribed text. The app is not sandboxed; macOS Accessibility consent provides the relevant user control for keyboard monitoring and event posting.
+Reco registers only the configured global shortcut through the macOS hotkey API; it does not monitor unrelated keyboard input. The app is not sandboxed because it synthesizes Command-V to insert transcribed text. macOS Accessibility consent provides the user control for that event posting.
 
 Audio is recorded to a randomly named temporary file, transcribed locally, and deleted when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
 

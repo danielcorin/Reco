@@ -1,7 +1,7 @@
 import AppKit
 import AVFoundation
-import ApplicationServices
 import Combine
+import CoreGraphics
 import SwiftUI
 
 @MainActor
@@ -27,6 +27,7 @@ final class DictationCoordinator: ObservableObject {
     private let hotkeyMonitor = HotkeyMonitor()
     private let overlay = RecordingOverlayController()
     private var releaseTask: Task<Void, Never>?
+    private var shortcutCaptureTask: Task<Void, Never>?
     private var started = false
     private var isHotkeyHeld = false
     private var isStartingRecording = false
@@ -34,6 +35,8 @@ final class DictationCoordinator: ObservableObject {
 
     private static let hotkeyDefaultsKey = "hotkey"
     private static let doubleTapWindow: Duration = .milliseconds(280)
+    private static let missingPasteAccessMessage =
+        "Text was copied, but Accessibility access is required to paste it automatically."
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.hotkeyDefaultsKey),
@@ -71,6 +74,22 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
+    var permissionsHelpText: String {
+        let needsMicrophone = AVCaptureDevice.authorizationStatus(for: .audio) != .authorized
+        let needsPasteAccess = !CGPreflightPostEventAccess()
+
+        return switch (needsMicrophone, needsPasteAccess) {
+        case (true, true):
+            "Reco needs Microphone access to record and Accessibility access to paste text."
+        case (true, false):
+            "Reco needs Microphone access to record."
+        case (false, true):
+            "Reco needs Accessibility access to paste text automatically."
+        case (false, false):
+            ""
+        }
+    }
+
     func start() {
         guard !started else { return }
         started = true
@@ -87,6 +106,9 @@ final class DictationCoordinator: ObservableObject {
             self?.overlay.updateLevel(level)
         }
 
+        if !hotkeyMonitor.start() {
+            errorMessage = "Couldn’t register the shortcut. Choose a different key combination."
+        }
         refreshPermissions()
 
         Task {
@@ -109,14 +131,33 @@ final class DictationCoordinator: ObservableObject {
     }
 
     func beginShortcutCapture() {
+        if isCapturingShortcut {
+            cancelShortcutCapture()
+            return
+        }
+
         errorMessage = nil
         guard hotkeyMonitor.captureNextShortcut() else {
             isCapturingShortcut = false
-            needsPermissions = true
-            errorMessage = "Allow Accessibility access before setting a shortcut."
+            errorMessage = "Couldn’t listen for a new shortcut. Try again."
             return
         }
         isCapturingShortcut = true
+        shortcutCaptureTask?.cancel()
+        shortcutCaptureTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, let self, self.isCapturingShortcut else { return }
+            self.hotkeyMonitor.cancelCapture()
+            self.isCapturingShortcut = false
+            self.errorMessage = "No shortcut received. Click the shortcut and try again."
+        }
+    }
+
+    func cancelShortcutCapture() {
+        shortcutCaptureTask?.cancel()
+        shortcutCaptureTask = nil
+        hotkeyMonitor.cancelCapture()
+        isCapturingShortcut = false
     }
 
     func requestPermissions() {
@@ -124,17 +165,20 @@ final class DictationCoordinator: ObservableObject {
         isRequestingPermissions = true
 
         Task {
+            defer { isRequestingPermissions = false }
+
             if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
                 _ = await AVCaptureDevice.requestAccess(for: .audio)
             }
 
             if !CGPreflightPostEventAccess() {
+                // Event posting has a distinct TCC permission even though macOS
+                // presents it in the Accessibility pane.
                 _ = CGRequestPostEventAccess()
             }
 
             try? await Task.sleep(for: .milliseconds(300))
             refreshPermissions()
-            isRequestingPermissions = false
 
             if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
                 openPrivacySettings(anchor: "Privacy_Microphone")
@@ -146,15 +190,14 @@ final class DictationCoordinator: ObservableObject {
 
     func refreshPermissions() {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio)
-        let hasInputAccess = CGPreflightPostEventAccess()
-
-        if hasInputAccess && !hotkeyMonitor.isRunning {
-            _ = hotkeyMonitor.start()
-        }
+        let hasPasteAccess = CGPreflightPostEventAccess()
 
         needsPermissions = mic != .authorized
-            || !hasInputAccess
-            || !hotkeyMonitor.isRunning
+            || !hasPasteAccess
+
+        if hasPasteAccess, errorMessage == Self.missingPasteAccessMessage {
+            errorMessage = nil
+        }
     }
 
     private func openPrivacySettings(anchor: String) {
@@ -170,14 +213,19 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func finishShortcutCapture(_ shortcut: Hotkey?) {
+        shortcutCaptureTask?.cancel()
+        shortcutCaptureTask = nil
         isCapturingShortcut = false
         guard let shortcut else {
             errorMessage = "Use at least one modifier key in the shortcut."
             return
         }
 
+        guard hotkeyMonitor.updateHotkey(shortcut) else {
+            errorMessage = "That shortcut couldn’t be registered. Choose a different combination."
+            return
+        }
         hotkey = shortcut
-        hotkeyMonitor.hotkey = shortcut
         if let data = try? JSONEncoder().encode(shortcut) {
             UserDefaults.standard.set(data, forKey: Self.hotkeyDefaultsKey)
         }
@@ -291,7 +339,7 @@ final class DictationCoordinator: ObservableObject {
 
         guard CGPreflightPostEventAccess() else {
             needsPermissions = true
-            errorMessage = "Text was copied, but input access is required to paste it automatically."
+            errorMessage = Self.missingPasteAccessMessage
             return
         }
 

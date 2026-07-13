@@ -94,11 +94,13 @@ struct MenuContentView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Reco needs microphone and Accessibility access to listen for the shortcut and paste text.")
+                    Text(coordinator.permissionsHelpText)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    Button("Open Privacy Settings") {
+                    Button("Request Access…") {
                         coordinator.requestPermissions()
                     }
                     .buttonStyle(.borderedProminent)
@@ -135,10 +137,13 @@ struct MenuContentView: View {
             coordinator.refreshPermissions()
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+        .onDisappear {
+            coordinator.cancelShortcutCapture()
+        }
         .task {
-            while !Task.isCancelled {
+            while !Task.isCancelled, coordinator.needsPermissions {
                 coordinator.refreshPermissions()
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }

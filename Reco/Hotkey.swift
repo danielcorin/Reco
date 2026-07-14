@@ -47,13 +47,13 @@ struct Hotkey: Codable, Equatable {
             30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 37: "L",
             38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",", 44: "/",
             45: "N", 46: "M", 47: ".", 49: "Space", 50: "`", 36: "Return",
-            48: "Tab", 51: "Delete", 53: "Esc", 123: "←", 124: "→", 125: "↓", 126: "↑"
+            48: "Tab", 51: "Delete", 53: "Esc", 123: "←", 124: "→", 125: "↓", 126: "↑",
         ]
         if let name = names[code] { return name }
         if (122...135).contains(code) {
             let functionKeys: [UInt16: String] = [
                 122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
-                98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"
+                98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
             ]
             return functionKeys[code] ?? "Key (code)"
         }
@@ -68,7 +68,7 @@ final class HotkeyMonitor {
     var onKeyUp: (() -> Void)?
     var onCaptured: ((Hotkey?) -> Void)?
 
-    private static let signature: OSType = 0x5245_434F // "RECO"
+    private static let signature: OSType = 0x5245_434F  // "RECO"
     private static let identifier: UInt32 = 1
 
     private let logger = Logger(
@@ -96,7 +96,7 @@ final class HotkeyMonitor {
                 EventTypeSpec(
                     eventClass: OSType(kEventClassKeyboard),
                     eventKind: UInt32(kEventHotKeyReleased)
-                )
+                ),
             ]
             let callback: EventHandlerUPP = { _, event, userInfo in
                 guard let event, let userInfo else { return OSStatus(eventNotHandledErr) }
@@ -221,8 +221,9 @@ final class HotkeyMonitor {
             &eventID
         )
         guard parameterStatus == noErr,
-              eventID.signature == Self.signature,
-              eventID.id == Self.identifier else {
+            eventID.signature == Self.signature,
+            eventID.id == Self.identifier
+        else {
             return OSStatus(eventNotHandledErr)
         }
 

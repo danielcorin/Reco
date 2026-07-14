@@ -124,6 +124,12 @@ struct MenuContentView: View {
 
                 Spacer()
 
+                Button("About Reco") {
+                    showAboutPanel()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
@@ -171,5 +177,10 @@ struct MenuContentView: View {
             get: { !showMenuBarIcon },
             set: { showMenuBarIcon = !$0 }
         )
+    }
+
+    private func showAboutPanel() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.orderFrontStandardAboutPanel(nil)
     }
 }

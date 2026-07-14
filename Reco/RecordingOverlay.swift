@@ -34,13 +34,17 @@ final class RecordingOverlayController {
         model.level = 0
         hideToken += 1
         let token = hideToken
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.08
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            guard let self, self.hideToken == token else { return }
-            panel.orderOut(nil)
-        })
+        NSAnimationContext.runAnimationGroup(
+            { context in
+                context.duration = 0.08
+                panel.animator().alphaValue = 0
+            },
+            completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.hideToken == token else { return }
+                    self.panel?.orderOut(nil)
+                }
+            })
     }
 
     func updateLevel(_ level: Float) {

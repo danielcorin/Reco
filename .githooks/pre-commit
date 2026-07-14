@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+FILES=()
+while IFS= read -r -d '' file; do
+    FILES+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.swift')
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+"$REPO_ROOT/scripts/format-swift.sh" "${FILES[@]}"
+git add -- "${FILES[@]}"
+echo "Formatted ${#FILES[@]} staged Swift file(s)."

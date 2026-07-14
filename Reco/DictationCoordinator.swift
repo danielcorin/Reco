@@ -1,5 +1,6 @@
-import AppKit
 import AVFoundation
+import AppKit
+import ApplicationServices
 import Combine
 import CoreGraphics
 import SwiftUI
@@ -31,6 +32,8 @@ final class DictationCoordinator: ObservableObject {
     private var started = false
     private var isHotkeyHeld = false
     private var isStartingRecording = false
+    private var releasedWhileStarting = false
+    private var latchRequestedWhileStarting = false
     private var isRequestingPermissions = false
 
     private static let hotkeyDefaultsKey = "hotkey"
@@ -40,7 +43,8 @@ final class DictationCoordinator: ObservableObject {
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.hotkeyDefaultsKey),
-           let saved = try? JSONDecoder().decode(Hotkey.self, from: data) {
+            let saved = try? JSONDecoder().decode(Hotkey.self, from: data)
+        {
             hotkey = saved
         } else {
             hotkey = .defaultHotkey
@@ -75,19 +79,28 @@ final class DictationCoordinator: ObservableObject {
     }
 
     var permissionsHelpText: String {
-        let needsMicrophone = AVCaptureDevice.authorizationStatus(for: .audio) != .authorized
-        let needsPasteAccess = !CGPreflightPostEventAccess()
-
-        return switch (needsMicrophone, needsPasteAccess) {
-        case (true, true):
-            "Reco needs Microphone access to record and Accessibility access to paste text."
-        case (true, false):
-            "Reco needs Microphone access to record."
-        case (false, true):
-            "Reco needs Accessibility access to paste text automatically."
-        case (false, false):
-            ""
+        var missingAccess: [String] = []
+        if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            missingAccess.append("Microphone")
         }
+        if !CGPreflightScreenCaptureAccess() {
+            missingAccess.append("Screen & System Audio Recording")
+        }
+        if !CGPreflightPostEventAccess() {
+            missingAccess.append("Accessibility")
+        }
+
+        guard !missingAccess.isEmpty else { return "" }
+        let list: String
+        if missingAccess.count == 1 {
+            list = missingAccess[0]
+        } else {
+            list =
+                missingAccess.dropLast().joined(separator: ", ")
+                + " and " + missingAccess.last!
+        }
+        return
+            "Reco needs \(list) access. Microphone and Screen & System Audio Recording capture audio; Accessibility pastes the transcription."
     }
 
     func start() {
@@ -171,17 +184,31 @@ final class DictationCoordinator: ObservableObject {
                 _ = await AVCaptureDevice.requestAccess(for: .audio)
             }
 
+            if !CGPreflightScreenCaptureAccess() {
+                _ = CGRequestScreenCaptureAccess()
+            }
+
             if !CGPreflightPostEventAccess() {
-                // Event posting has a distinct TCC permission even though macOS
-                // presents it in the Accessibility pane.
+                // Register this exact app bundle with Accessibility before opening
+                // System Settings so the user does not have to add it manually.
+                let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+                let options = [promptKey: true] as CFDictionary
+                _ = AXIsProcessTrustedWithOptions(options)
+
+                // Event posting has a distinct preflight API even though macOS
+                // presents the approval in the Accessibility pane.
                 _ = CGRequestPostEventAccess()
             }
 
-            try? await Task.sleep(for: .milliseconds(300))
+            // The Accessibility registration and prompt are asynchronous. Give
+            // macOS time to create the list entry before revealing its pane.
+            try? await Task.sleep(for: .seconds(1))
             refreshPermissions()
 
             if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
                 openPrivacySettings(anchor: "Privacy_Microphone")
+            } else if !CGPreflightScreenCaptureAccess() {
+                openPrivacySettings(anchor: "Privacy_ScreenCapture")
             } else if !CGPreflightPostEventAccess() {
                 openPrivacySettings(anchor: "Privacy_Accessibility")
             }
@@ -190,9 +217,12 @@ final class DictationCoordinator: ObservableObject {
 
     func refreshPermissions() {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio)
+        let hasSystemAudioAccess = CGPreflightScreenCaptureAccess()
         let hasPasteAccess = CGPreflightPostEventAccess()
 
-        needsPermissions = mic != .authorized
+        needsPermissions =
+            mic != .authorized
+            || !hasSystemAudioAccess
             || !hasPasteAccess
 
         if hasPasteAccess, errorMessage == Self.missingPasteAccessMessage {
@@ -201,9 +231,11 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func openPrivacySettings(anchor: String) {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
-        ) else { return }
+        guard
+            let url = URL(
+                string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
+            )
+        else { return }
 
         if !NSWorkspace.shared.open(url) {
             NSWorkspace.shared.open(
@@ -233,6 +265,17 @@ final class DictationCoordinator: ObservableObject {
 
     private func hotkeyPressed() {
         isHotkeyHeld = true
+
+        // Starting ScreenCaptureKit can take longer than a normal double-tap.
+        // Remember a second press during startup and apply the lock once the
+        // recorder is ready instead of dropping the gesture.
+        if isStartingRecording {
+            if releasedWhileStarting {
+                latchRequestedWhileStarting = true
+            }
+            return
+        }
+
         switch state {
         case .ready, .transcribing, .failed:
             overlay.show(latched: false)
@@ -255,6 +298,10 @@ final class DictationCoordinator: ObservableObject {
 
     private func hotkeyReleased() {
         isHotkeyHeld = false
+        if isStartingRecording {
+            releasedWhileStarting = true
+            return
+        }
         guard case .recording(let latched) = state, !latched else { return }
         overlay.hide()
         scheduleRelease()
@@ -273,13 +320,20 @@ final class DictationCoordinator: ObservableObject {
     private func beginRecording() {
         guard !isStartingRecording else { return }
         isStartingRecording = true
+        releasedWhileStarting = false
+        latchRequestedWhileStarting = false
         errorMessage = nil
         Task {
             do {
                 try await recorder.start()
+                let shouldLatch = latchRequestedWhileStarting
                 isStartingRecording = false
-                state = .recording(latched: false)
-                if !isHotkeyHeld {
+                releasedWhileStarting = false
+                latchRequestedWhileStarting = false
+                state = .recording(latched: shouldLatch)
+                if shouldLatch {
+                    overlay.show(latched: true)
+                } else if !isHotkeyHeld {
                     overlay.hide()
                     scheduleRelease()
                 }
@@ -295,15 +349,15 @@ final class DictationCoordinator: ObservableObject {
         overlay.hide()
         state = .transcribing
 
-        let url: URL
-        do {
-            url = try recorder.stop()
-        } catch {
-            fail(error.localizedDescription)
-            return
-        }
-
         Task {
+            let url: URL
+            do {
+                url = try await recorder.stop()
+            } catch {
+                fail(error.localizedDescription)
+                return
+            }
+
             defer { try? FileManager.default.removeItem(at: url) }
             do {
                 let text = try await transcriber.transcribe(url)
@@ -354,6 +408,8 @@ final class DictationCoordinator: ObservableObject {
 
     private func fail(_ message: String) {
         isStartingRecording = false
+        releasedWhileStarting = false
+        latchRequestedWhileStarting = false
         isHotkeyHeld = false
         releaseTask?.cancel()
         releaseTask = nil

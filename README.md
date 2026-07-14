@@ -4,7 +4,7 @@
   <img src="Reco/Assets.xcassets/AppIcon.appiconset/RecoIcon-256.png" width="128" height="128" alt="Reco app icon">
 </p>
 
-Reco is a minimal macOS menu bar dictation app. Hold a configurable global shortcut to record, release it to transcribe, and Reco copies and pastes the result into the active app. Double-tap the shortcut to latch recording on, then press it once to stop.
+Reco is a minimal macOS menu bar transcription app. Hold a configurable global shortcut to record the default microphone and system audio, release it to transcribe their mixed audio, and Reco copies and pastes the result into the active app. Double-tap the shortcut to latch recording on, then press it once to stop.
 
 Transcription runs locally with NVIDIA Parakeet TDT 0.6B v3 through FluidAudio and Core ML. The model is downloaded from Hugging Face on first launch; after that download, recorded audio is processed on-device. Temporary recordings are deleted after transcription.
 
@@ -25,7 +25,7 @@ I made Reco using a few different coding agent tools and LLMs.
 - macOS 14 or later
 - Xcode with Swift 6 support
 - An Apple Silicon Mac is recommended for Core ML performance
-- Microphone and Accessibility permissions
+- Microphone, Screen & System Audio Recording, and Accessibility permissions
 
 ## Build
 
@@ -70,7 +70,7 @@ That command requires a clean branch synchronized with its upstream, creates a u
 
 Reco registers only the configured global shortcut through the macOS hotkey API; it does not monitor unrelated keyboard input. The app is not sandboxed because it synthesizes Command-V to insert transcribed text. macOS Accessibility consent provides the user control for that event posting.
 
-Audio is recorded to a randomly named temporary file, transcribed locally, and deleted when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
+Microphone and system audio are captured only while the shortcut is active. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
 
 ## Model and dependency licenses
 

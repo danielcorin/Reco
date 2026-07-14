@@ -222,10 +222,12 @@ prepare_github_release() {
     [[ "$HEAD_COMMIT" == "$upstream_commit" ]] || \
         fail "the current branch differs from $upstream; push or pull before publishing"
 
-    GH_ARGS=()
-    if [[ -n "$GH_REPOSITORY" ]]; then
-        GH_ARGS=(--repo "$GH_REPOSITORY")
+    if [[ -z "$GH_REPOSITORY" ]]; then
+        GH_REPOSITORY="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || \
+            fail "could not resolve the GitHub repository; pass --repo OWNER/REPO"
     fi
+    [[ -n "$GH_REPOSITORY" ]] || fail "could not resolve the GitHub repository; pass --repo OWNER/REPO"
+    GH_ARGS=(--repo "$GH_REPOSITORY")
 
     RELEASE_EXISTS=0
     if gh release view "$TAG" "${GH_ARGS[@]}" >/dev/null 2>&1; then

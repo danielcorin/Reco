@@ -1,5 +1,6 @@
-import AVFoundation
 import Accelerate
+import AVFoundation
+import os
 
 enum AudioRecorderError: LocalizedError {
     case permissionDenied
@@ -22,9 +23,8 @@ final class AudioRecorder {
     var onLevel: (@MainActor (Float) -> Void)?
 
     private let engine = AVAudioEngine()
-    private var audioFile: AVAudioFile?
+    private var session: RecordingSession?
     private var recordingURL: URL?
-    private var writeError: Error?
 
     func start() async throws {
         guard await microphoneAccess() else {
@@ -40,23 +40,14 @@ final class AudioRecorder {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("Reco-\(UUID().uuidString)")
             .appendingPathExtension("caf")
-        let file = try AVAudioFile(forWriting: url, settings: format.settings)
-
-        writeError = nil
-        audioFile = file
+        let session = try RecordingSession(url: url, settings: format.settings)
+        self.session = session
         recordingURL = url
 
-        var levelSampleCounter = 0
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
-            guard let self else { return }
-            do {
-                try self.audioFile?.write(from: buffer)
-            } catch {
-                self.writeError = error
-            }
+            session.write(buffer)
 
-            levelSampleCounter += 1
-            guard levelSampleCounter.isMultiple(of: 2),
+            guard session.shouldPublishLevel(),
                   let samples = buffer.floatChannelData?[0],
                   buffer.frameLength > 0 else { return }
 
@@ -75,7 +66,8 @@ final class AudioRecorder {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
-            audioFile = nil
+            _ = session.finish()
+            self.session = nil
             recordingURL = nil
             try? FileManager.default.removeItem(at: url)
             throw AudioRecorderError.recordingFailed(error.localizedDescription)
@@ -83,17 +75,16 @@ final class AudioRecorder {
     }
 
     func stop() throws -> URL {
-        guard let url = recordingURL else {
+        guard let url = recordingURL, let session else {
             throw AudioRecorderError.notRecording
         }
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        audioFile = nil
+        self.session = nil
         recordingURL = nil
 
-        if let writeError {
-            self.writeError = nil
+        if let writeError = session.finish() {
             try? FileManager.default.removeItem(at: url)
             throw AudioRecorderError.recordingFailed(writeError.localizedDescription)
         }
@@ -109,6 +100,52 @@ final class AudioRecorder {
             return await AVCaptureDevice.requestAccess(for: .audio)
         default:
             return false
+        }
+    }
+}
+
+/// Owns the state the tap block mutates. AVAudioEngine delivers tap buffers
+/// on an internal audio thread, not the main actor, so every access goes
+/// through the lock. `removeTap` does not wait for in-flight callbacks;
+/// `finish()` releases the file under the lock, so once it returns no tap
+/// callback can reach the file again.
+private nonisolated final class RecordingSession: Sendable {
+    private struct State {
+        var file: AVAudioFile?
+        var writeError: Error?
+        var bufferCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(url: URL, settings: [String: Any]) throws {
+        let file = try AVAudioFile(forWriting: url, settings: settings)
+        state = OSAllocatedUnfairLock(initialState: State(file: file))
+    }
+
+    func write(_ buffer: AVAudioPCMBuffer) {
+        state.withLockUnchecked { state in
+            guard state.writeError == nil else { return }
+            do {
+                try state.file?.write(from: buffer)
+            } catch {
+                state.writeError = error
+            }
+        }
+    }
+
+    /// Level updates are published for every second buffer.
+    func shouldPublishLevel() -> Bool {
+        state.withLockUnchecked { state in
+            state.bufferCount += 1
+            return state.bufferCount.isMultiple(of: 2)
+        }
+    }
+
+    func finish() -> Error? {
+        state.withLockUnchecked { state in
+            state.file = nil
+            return state.writeError
         }
     }
 }

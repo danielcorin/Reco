@@ -12,7 +12,8 @@ Usage:
 With no app path, the script performs the complete release workflow: archive a
 universal Release build, Developer ID-sign and upload it with Xcode, wait for
 notarization, export the stapled app, create a ZIP and signed/notarized DMG,
-verify them, and optionally publish a GitHub Release.
+verify them, optionally publish a GitHub Release, then install and launch the
+verified app from /Applications.
 
 An existing notarized app path skips the archive/upload/export steps.
 
@@ -32,6 +33,7 @@ Release options:
   --repo OWNER/REPO          GitHub repository passed to gh.
   --replace-existing-release Replace assets on an existing release tag.
   --skip-dmg-notarization    Explicitly leave the signed outer DMG unnotarized.
+  --skip-install             Do not replace and relaunch /Applications/Reco.app.
   --allow-dirty              Allow a source build from an uncommitted tree.
                              This cannot be combined with --publish.
   --keep-work-dir            Preserve temporary archive/export files.
@@ -318,6 +320,50 @@ cleanup() {
     fi
 }
 
+install_and_launch_app() {
+    local install_dir="/Applications"
+    local install_path="$install_dir/$PRODUCT_NAME.app"
+    local staging_dir staged_app attempt
+
+    echo "Installing $PRODUCT_NAME in $install_dir..."
+
+    if pgrep -x "$PRODUCT_NAME" >/dev/null; then
+        echo "Closing the running $PRODUCT_NAME app..."
+        osascript -e "tell application \"$PRODUCT_NAME\" to quit" >/dev/null 2>&1 || true
+
+        for ((attempt = 0; attempt < 50; attempt++)); do
+            pgrep -x "$PRODUCT_NAME" >/dev/null || break
+            sleep 0.1
+        done
+
+        if pgrep -x "$PRODUCT_NAME" >/dev/null; then
+            echo "$PRODUCT_NAME did not quit in time; sending SIGTERM..."
+            pkill -TERM -x "$PRODUCT_NAME" || true
+            for ((attempt = 0; attempt < 50; attempt++)); do
+                pgrep -x "$PRODUCT_NAME" >/dev/null || break
+                sleep 0.1
+            done
+        fi
+
+        pgrep -x "$PRODUCT_NAME" >/dev/null && fail "could not stop the running $PRODUCT_NAME app"
+    fi
+
+    staging_dir="$(mktemp -d "$install_dir/.$PRODUCT_NAME-install.XXXXXX")"
+    staged_app="$staging_dir/$PRODUCT_NAME.app"
+    ditto "$APP_PATH" "$staged_app"
+    rm -rf "$install_path"
+    mv "$staged_app" "$install_path"
+    rmdir "$staging_dir"
+
+    open "$install_path"
+    for ((attempt = 0; attempt < 50; attempt++)); do
+        pgrep -x "$PRODUCT_NAME" >/dev/null && break
+        sleep 0.1
+    done
+    pgrep -x "$PRODUCT_NAME" >/dev/null || fail "$PRODUCT_NAME did not launch"
+    echo "Installed and launched $install_path"
+}
+
 CALLER_PWD="$PWD"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
@@ -345,6 +391,7 @@ SETUP_PROFILE=""
 PUBLISH=0
 REPLACE_EXISTING=0
 SKIP_DMG_NOTARIZATION=0
+INSTALL_APP=1
 ALLOW_DIRTY=0
 KEEP_WORK_DIR=0
 DRY_RUN=0
@@ -422,6 +469,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-dmg-notarization)
             SKIP_DMG_NOTARIZATION=1
+            shift
+            ;;
+        --skip-install)
+            INSTALL_APP=0
             shift
             ;;
         --allow-dirty)
@@ -570,6 +621,11 @@ if [[ "$PUBLISH" -eq 1 ]]; then
 else
     echo "  GitHub:       package only"
 fi
+if [[ "$INSTALL_APP" -eq 1 ]]; then
+    echo "  Install:      replace and launch /Applications/$PRODUCT_NAME.app"
+else
+    echo "  Install:      skipped"
+fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Dry run complete; no archive or artifacts were created."
@@ -579,6 +635,12 @@ fi
 for command in ditto find grep hdiutil lipo mktemp plutil shasum spctl; do
     command_exists "$command"
 done
+
+if [[ "$INSTALL_APP" -eq 1 ]]; then
+    for command in open osascript pgrep pkill; do
+        command_exists "$command"
+    done
+fi
 
 if [[ "$SKIP_DMG_NOTARIZATION" -eq 0 ]]; then
     echo "Validating notary profile '$NOTARY_PROFILE'..."
@@ -692,4 +754,8 @@ if [[ "$PUBLISH" -eq 1 ]]; then
 
     RELEASE_URL="$(gh release view "$TAG" "${GH_ARGS[@]}" --json url --jq .url)"
     echo "Published GitHub Release $TAG: $RELEASE_URL"
+fi
+
+if [[ "$INSTALL_APP" -eq 1 ]]; then
+    install_and_launch_app
 fi

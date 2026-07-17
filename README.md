@@ -64,7 +64,7 @@ Before each release, update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
 scripts/publish-release.sh --publish
 ```
 
-That command requires a clean branch synchronized with its upstream, creates a universal archive, uploads it through the Xcode account configured on the Mac, waits for Apple notarization, exports and verifies the stapled app, creates the ZIP and DMG, separately notarizes the outer DMG, verifies checksums, and creates the GitHub Release. Use `--dry-run` to inspect the resolved plan or pass an existing notarized `.app` path to skip the archive and app-notarization stages. `--skip-dmg-notarization` is available only as an explicit exception and is not recommended for public releases.
+That command requires a clean branch synchronized with its upstream, creates a universal archive, uploads it through the Xcode account configured on the Mac, waits for Apple notarization, exports and verifies the stapled app, creates the ZIP and DMG, separately notarizes the outer DMG, verifies checksums, creates the GitHub Release, then replaces `/Applications/Reco.app` and launches it. Use `--dry-run` to inspect the resolved plan, `--skip-install` to leave the installed app untouched, or pass an existing notarized `.app` path to skip the archive and app-notarization stages. `--skip-dmg-notarization` is available only as an explicit exception and is not recommended for public releases.
 
 ## Permissions and privacy
 

@@ -94,17 +94,14 @@ struct MenuContentView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(coordinator.permissionsHelpText)
+                    Text("Reco needs these permissions. Grant them one at a time.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                        .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Button("Request Access…") {
-                        coordinator.requestPermissions()
+                    ForEach(DictationCoordinator.Permission.allCases) { permission in
+                        permissionRow(permission)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                 }
             }
 
@@ -150,6 +147,34 @@ struct MenuContentView: View {
             while !Task.isCancelled, coordinator.needsPermissions {
                 coordinator.refreshPermissions()
                 try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func permissionRow(_ permission: DictationCoordinator.Permission) -> some View {
+        let granted = coordinator.isGranted(permission)
+        HStack(spacing: 8) {
+            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13))
+                .foregroundStyle(granted ? Color.green : Color.secondary)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(permission.displayName)
+                    .font(.system(size: 12, weight: .medium))
+                Text(permission.purpose)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if !granted {
+                Button("Grant…") {
+                    coordinator.requestPermission(permission)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
     }

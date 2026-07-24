@@ -15,10 +15,35 @@ final class DictationCoordinator: ObservableObject {
         case failed
     }
 
+    enum Permission: CaseIterable, Identifiable {
+        case microphone
+        case systemAudio
+        case accessibility
+
+        var id: Self { self }
+
+        var displayName: String {
+            switch self {
+            case .microphone: "Microphone"
+            case .systemAudio: "Screen & System Audio"
+            case .accessibility: "Accessibility"
+            }
+        }
+
+        var purpose: String {
+            switch self {
+            case .microphone: "Captures your voice"
+            case .systemAudio: "Captures system audio"
+            case .accessibility: "Inserts the transcription"
+            }
+        }
+    }
+
     @Published private(set) var state: State = .loadingModel
     @Published private(set) var hotkey: Hotkey
     @Published private(set) var isCapturingShortcut = false
     @Published private(set) var needsPermissions = false
+    @Published private(set) var grantedPermissions: Set<Permission> = []
     @Published private(set) var errorMessage: String?
     @Published private(set) var modelLoadProgress = 0.0
     @Published private(set) var modelLoadDetail = "Downloading model…"
@@ -38,8 +63,11 @@ final class DictationCoordinator: ObservableObject {
 
     private static let hotkeyDefaultsKey = "hotkey"
     private static let doubleTapWindow: Duration = .milliseconds(280)
+    private static let clipboardRestoreDelay: Duration = .milliseconds(500)
     private static let missingPasteAccessMessage =
         "Text was copied, but Accessibility access is required to paste it automatically."
+    private static let insertFailedMessage =
+        "No text field was focused. The transcription was copied — press ⌘V to paste it."
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.hotkeyDefaultsKey),
@@ -78,29 +106,8 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
-    var permissionsHelpText: String {
-        var missingAccess: [String] = []
-        if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
-            missingAccess.append("Microphone")
-        }
-        if !CGPreflightScreenCaptureAccess() {
-            missingAccess.append("Screen & System Audio Recording")
-        }
-        if !CGPreflightPostEventAccess() {
-            missingAccess.append("Accessibility")
-        }
-
-        guard !missingAccess.isEmpty else { return "" }
-        let list: String
-        if missingAccess.count == 1 {
-            list = missingAccess[0]
-        } else {
-            list =
-                missingAccess.dropLast().joined(separator: ", ")
-                + " and " + missingAccess.last!
-        }
-        return
-            "Reco needs \(list) access. Microphone and Screen & System Audio Recording capture audio; Accessibility pastes the transcription."
+    func isGranted(_ permission: Permission) -> Bool {
+        grantedPermissions.contains(permission)
     }
 
     func start() {
@@ -173,59 +180,69 @@ final class DictationCoordinator: ObservableObject {
         isCapturingShortcut = false
     }
 
-    func requestPermissions() {
+    func requestPermission(_ permission: Permission) {
         guard !isRequestingPermissions else { return }
         isRequestingPermissions = true
 
         Task {
             defer { isRequestingPermissions = false }
 
-            if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
-                _ = await AVCaptureDevice.requestAccess(for: .audio)
+            switch permission {
+            case .microphone:
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    _ = await AVCaptureDevice.requestAccess(for: .audio)
+                }
+            case .systemAudio:
+                if !CGPreflightScreenCaptureAccess() {
+                    _ = CGRequestScreenCaptureAccess()
+                }
+            case .accessibility:
+                if !CGPreflightPostEventAccess() {
+                    // Register this exact app bundle with Accessibility before opening
+                    // System Settings so the user does not have to add it manually.
+                    let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+                    let options = [promptKey: true] as CFDictionary
+                    _ = AXIsProcessTrustedWithOptions(options)
+
+                    // Event posting has a distinct preflight API even though macOS
+                    // presents the approval in the Accessibility pane.
+                    _ = CGRequestPostEventAccess()
+                }
             }
 
-            if !CGPreflightScreenCaptureAccess() {
-                _ = CGRequestScreenCaptureAccess()
-            }
-
-            if !CGPreflightPostEventAccess() {
-                // Register this exact app bundle with Accessibility before opening
-                // System Settings so the user does not have to add it manually.
-                let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-                let options = [promptKey: true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(options)
-
-                // Event posting has a distinct preflight API even though macOS
-                // presents the approval in the Accessibility pane.
-                _ = CGRequestPostEventAccess()
-            }
-
-            // The Accessibility registration and prompt are asynchronous. Give
-            // macOS time to create the list entry before revealing its pane.
+            // System prompts and TCC registration are asynchronous. Give macOS
+            // time to settle before deciding whether Settings must be opened.
             try? await Task.sleep(for: .seconds(1))
             refreshPermissions()
 
-            if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            guard !isGranted(permission) else { return }
+            switch permission {
+            case .microphone:
                 openPrivacySettings(anchor: "Privacy_Microphone")
-            } else if !CGPreflightScreenCaptureAccess() {
+            case .systemAudio:
                 openPrivacySettings(anchor: "Privacy_ScreenCapture")
-            } else if !CGPreflightPostEventAccess() {
+            case .accessibility:
                 openPrivacySettings(anchor: "Privacy_Accessibility")
             }
         }
     }
 
     func refreshPermissions() {
-        let mic = AVCaptureDevice.authorizationStatus(for: .audio)
-        let hasSystemAudioAccess = CGPreflightScreenCaptureAccess()
-        let hasPasteAccess = CGPreflightPostEventAccess()
+        var granted: Set<Permission> = []
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            granted.insert(.microphone)
+        }
+        if CGPreflightScreenCaptureAccess() {
+            granted.insert(.systemAudio)
+        }
+        if CGPreflightPostEventAccess() {
+            granted.insert(.accessibility)
+        }
 
-        needsPermissions =
-            mic != .authorized
-            || !hasSystemAudioAccess
-            || !hasPasteAccess
+        grantedPermissions = granted
+        needsPermissions = granted.count != Permission.allCases.count
 
-        if hasPasteAccess, errorMessage == Self.missingPasteAccessMessage {
+        if granted.contains(.accessibility), errorMessage == Self.missingPasteAccessMessage {
             errorMessage = nil
         }
     }
@@ -365,7 +382,7 @@ final class DictationCoordinator: ObservableObject {
                     transcriptionEnded(errorText: "No speech was detected.")
                     return
                 }
-                copyAndPaste(text)
+                deliverTranscription(text)
                 transcriptionEnded(errorText: nil)
             } catch {
                 transcriptionEnded(errorText: "Transcription failed: \(error.localizedDescription)")
@@ -386,16 +403,76 @@ final class DictationCoordinator: ObservableObject {
         scheduleFailedReset()
     }
 
-    private func copyAndPaste(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
-        guard CGPreflightPostEventAccess() else {
+    private func deliverTranscription(_ text: String) {
+        guard AXIsProcessTrusted() else {
+            copyToClipboard(text)
             needsPermissions = true
             errorMessage = Self.missingPasteAccessMessage
             return
         }
+
+        guard let field = focusedUIElement() else {
+            copyToClipboard(text)
+            errorMessage = Self.insertFailedMessage
+            return
+        }
+
+        if insertViaAccessibility(text, into: field) { return }
+
+        pasteRestoringClipboard(text)
+    }
+
+    private func copyToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    private func focusedUIElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(
+                systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+            ) == .success,
+            let focusedRef,
+            CFGetTypeID(focusedRef) == AXUIElementGetTypeID()
+        else { return nil }
+        return (focusedRef as! AXUIElement)
+    }
+
+    // Inserts without touching the clipboard. Only classic AppKit text views
+    // honor a settable AXSelectedText; Electron apps, terminals, and SwiftUI
+    // fields do not, and those fall through to the paste path.
+    private func insertViaAccessibility(_ text: String, into field: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        guard
+            AXUIElementIsAttributeSettable(
+                field, kAXSelectedTextAttribute as CFString, &settable
+            ) == .success,
+            settable.boolValue
+        else { return false }
+
+        return AXUIElementSetAttributeValue(
+            field, kAXSelectedTextAttribute as CFString, text as CFString
+        ) == .success
+    }
+
+    private func pasteRestoringClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        let saved = (pasteboard.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    copy.setData(data, forType: type)
+                }
+            }
+            return copy
+        }
+
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        let transcriptChangeCount = pasteboard.changeCount
 
         let source = CGEventSource(stateID: .combinedSessionState)
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
@@ -404,6 +481,16 @@ final class DictationCoordinator: ObservableObject {
         keyUp?.flags = .maskCommand
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)
+
+        Task {
+            // Give the frontmost app time to read the pasteboard before
+            // putting the previous contents back.
+            try? await Task.sleep(for: Self.clipboardRestoreDelay)
+            // If the user copied something in the meantime, keep their copy.
+            guard pasteboard.changeCount == transcriptChangeCount else { return }
+            pasteboard.clearContents()
+            pasteboard.writeObjects(saved)
+        }
     }
 
     private func fail(_ message: String) {

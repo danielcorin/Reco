@@ -112,6 +112,23 @@ struct MenuContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if coordinator.lastTranscription != nil {
+                Divider()
+
+                HStack {
+                    Text("Last transcription")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button("Copy") {
+                        coordinator.copyLastTranscription()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
             Divider()
 
             HStack {

@@ -44,6 +44,7 @@ final class DictationCoordinator: ObservableObject {
     @Published private(set) var isCapturingShortcut = false
     @Published private(set) var needsPermissions = false
     @Published private(set) var grantedPermissions: Set<Permission> = []
+    @Published private(set) var lastTranscription: String?
     @Published private(set) var errorMessage: String?
     @Published private(set) var modelLoadProgress = 0.0
     @Published private(set) var modelLoadDetail = "Downloading model…"
@@ -66,8 +67,6 @@ final class DictationCoordinator: ObservableObject {
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
     private static let missingPasteAccessMessage =
         "Text was copied, but Accessibility access is required to paste it automatically."
-    private static let insertFailedMessage =
-        "No text field was focused. The transcription was copied — press ⌘V to paste it."
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.hotkeyDefaultsKey),
@@ -404,6 +403,8 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func deliverTranscription(_ text: String) {
+        lastTranscription = text
+
         guard AXIsProcessTrusted() else {
             copyToClipboard(text)
             needsPermissions = true
@@ -411,15 +412,19 @@ final class DictationCoordinator: ObservableObject {
             return
         }
 
-        guard let field = focusedUIElement() else {
-            copyToClipboard(text)
-            errorMessage = Self.insertFailedMessage
+        if let field = focusedUIElement(), insertViaAccessibility(text, into: field) {
             return
         }
 
-        if insertViaAccessibility(text, into: field) { return }
-
+        // Chromium-family apps build their accessibility tree lazily, so a
+        // missing or unusable focused element means "paste", not "nothing is
+        // focused" — the pasteboard is restored afterward either way.
         pasteRestoringClipboard(text)
+    }
+
+    func copyLastTranscription() {
+        guard let lastTranscription else { return }
+        copyToClipboard(lastTranscription)
     }
 
     private func copyToClipboard(_ text: String) {
@@ -450,12 +455,23 @@ final class DictationCoordinator: ObservableObject {
             AXUIElementIsAttributeSettable(
                 field, kAXSelectedTextAttribute as CFString, &settable
             ) == .success,
-            settable.boolValue
+            settable.boolValue,
+            AXUIElementSetAttributeValue(
+                field, kAXSelectedTextAttribute as CFString, text as CFString
+            ) == .success
         else { return false }
 
-        return AXUIElementSetAttributeValue(
-            field, kAXSelectedTextAttribute as CFString, text as CFString
-        ) == .success
+        // Some apps report success without inserting anything. Distrust the
+        // result when the field's value is readable and the text is absent.
+        var valueRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(field, kAXValueAttribute as CFString, &valueRef)
+            == .success,
+            let value = valueRef as? String,
+            !value.contains(text)
+        {
+            return false
+        }
+        return true
     }
 
     private func pasteRestoringClipboard(_ text: String) {

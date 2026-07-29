@@ -154,17 +154,12 @@ struct MenuContentView: View {
         .padding(16)
         .frame(width: 290)
         .onAppear {
-            coordinator.refreshPermissions()
+            coordinator.startPermissionPolling()
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
         .onDisappear {
+            coordinator.stopPermissionPolling()
             coordinator.cancelShortcutCapture()
-        }
-        .task {
-            while !Task.isCancelled, coordinator.needsPermissions {
-                coordinator.refreshPermissions()
-                try? await Task.sleep(for: .seconds(1))
-            }
         }
     }
 

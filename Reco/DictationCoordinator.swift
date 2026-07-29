@@ -55,6 +55,7 @@ final class DictationCoordinator: ObservableObject {
     private let overlay = RecordingOverlayController()
     private var releaseTask: Task<Void, Never>?
     private var shortcutCaptureTask: Task<Void, Never>?
+    private var permissionPollCancellable: AnyCancellable?
     private var started = false
     private var isHotkeyHeld = false
     private var isStartingRecording = false
@@ -244,6 +245,35 @@ final class DictationCoordinator: ObservableObject {
         if granted.contains(.accessibility), errorMessage == Self.missingPasteAccessMessage {
             errorMessage = nil
         }
+    }
+
+    /// Poll while the menu is open so permission rows update after the user
+    /// returns from System Settings. A Combine timer avoids tying this work to
+    /// SwiftUI's task-modifier lifecycle, which is fragile for MenuBarExtra
+    /// views that are repeatedly inserted and removed.
+    func startPermissionPolling() {
+        refreshPermissions()
+        guard needsPermissions, permissionPollCancellable == nil else { return }
+
+        permissionPollCancellable = Timer.publish(
+            every: 1,
+            tolerance: 0.1,
+            on: .main,
+            in: .common
+        )
+        .autoconnect()
+        .sink { [weak self] _ in
+            guard let self else { return }
+            self.refreshPermissions()
+            if !self.needsPermissions {
+                self.stopPermissionPolling()
+            }
+        }
+    }
+
+    func stopPermissionPolling() {
+        permissionPollCancellable?.cancel()
+        permissionPollCancellable = nil
     }
 
     private func openPrivacySettings(anchor: String) {

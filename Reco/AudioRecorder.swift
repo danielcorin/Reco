@@ -33,7 +33,7 @@ final class AudioRecorder {
     var onLevel: (@MainActor (Float) -> Void)?
 
     private static let logger = Logger(subsystem: "llc.wvlen.Reco", category: "AudioRecorder")
-    private let engine = AVAudioEngine()
+    private var engine: AVAudioEngine?
     private var session: RecordingSession?
     private var stream: SCStream?
     private var streamOutput: SystemAudioStreamOutput?
@@ -50,8 +50,19 @@ final class AudioRecorder {
         guard CGPreflightScreenCaptureAccess() else {
             throw AudioRecorderError.systemAudioPermissionDenied
         }
+        guard AVCaptureDevice.default(for: .audio) != nil else {
+            throw AudioRecorderError.noInput
+        }
 
+        // Create a fresh engine for every recording. A long-lived engine can
+        // retain a stale I/O graph after the default microphone disconnects or
+        // changes while Reco is idle.
+        let engine = AVAudioEngine()
         let input = engine.inputNode
+        let hardwareFormat = input.inputFormat(forBus: 0)
+        guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
+            throw AudioRecorderError.noInput
+        }
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw AudioRecorderError.noInput
@@ -72,7 +83,7 @@ final class AudioRecorder {
         let session = try RecordingSession(baseURL: baseURL, format: recordingFormat)
         self.session = session
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, time in
+        let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, time in
             session.writeMicrophone(buffer, hostTime: time.hostTime)
 
             guard session.shouldPublishLevel(),
@@ -89,9 +100,30 @@ final class AudioRecorder {
                 self?.onLevel?(normalized)
             }
         }
-        inputTapInstalled = true
 
         do {
+            // AVAudioNode.installTap reports some unavailable-device failures
+            // as Objective-C exceptions instead of Swift errors. Catch that
+            // narrow API boundary so AppKit cannot swallow the exception and
+            // leave SwiftUI's executor state damaged.
+            do {
+                try RecoExceptionCatcher.perform {
+                    input.installTap(
+                        onBus: 0,
+                        bufferSize: 2048,
+                        format: inputFormat,
+                        block: tapBlock
+                    )
+                }
+            } catch {
+                Self.logger.error(
+                    "Could not install microphone tap: \(error.localizedDescription, privacy: .public)"
+                )
+                throw AudioRecorderError.noInput
+            }
+            inputTapInstalled = true
+            self.engine = engine
+
             engine.prepare()
             try engine.start()
 
@@ -214,11 +246,13 @@ final class AudioRecorder {
     }
 
     private func stopMicrophoneCapture() {
+        guard let engine else { return }
         if inputTapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             inputTapInstalled = false
         }
         engine.stop()
+        self.engine = nil
     }
 
     private func microphoneAccess() async -> Bool {

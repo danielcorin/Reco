@@ -570,7 +570,7 @@ if [[ -n "$SETUP_PROFILE" ]]; then
 
     store_notary_profile "$SETUP_PROFILE"
     echo "Stored and validated notary profile '$SETUP_PROFILE'."
-    echo "Use it with: NOTARY_PROFILE='$SETUP_PROFILE' scripts/publish-release.sh --publish"
+    echo "Use it with: NOTARY_PROFILE='$SETUP_PROFILE' mise exec -- scripts/publish-release.sh --publish"
     exit 0
 fi
 

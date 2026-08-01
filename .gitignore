@@ -18,4 +18,6 @@ Configuration/Local.xcconfig
 
 # Local development notes
 /prompts.md
-.env
+
+# mise-loaded release secrets
+/.env

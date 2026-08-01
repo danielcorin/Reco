@@ -49,19 +49,28 @@ xcodebuild \
 
 The release script reads the version, build number, and bundle ID from the resolved Xcode settings. It prefers signing details from the release environment and falls back to the ignored `Configuration/Local.xcconfig`; no real Apple team ID or credentials are stored in the repository.
 
-Copy the release environment template, fill in your Apple credentials and repository, then allow direnv:
+Copy the release environment template, fill in your Apple credentials and
+repository, then trust the committed [mise](https://mise.jdx.dev/)
+configuration once:
 
 ```sh
 cp .env.example .env
-direnv allow
+$EDITOR .env
+mise trust
 ```
 
-The ignored `.env` uses `APPLE_ID`, `APPLE_ID_PASSWORD`, `DEVELOPER_ID_APPLICATION`, and `TEAM_ID`. On the first release, the script validates those values and stores the [app-specific password](https://support.apple.com/102654) in the `RecoNotary` Keychain profile. Later releases reuse the Keychain profile. `NOTARY_PROFILE` defaults to `RecoNotary`, and the older `NOTARY_APPLE_ID`, `DEVELOPER_IDENTITY`, and `DEVELOPMENT_TEAM` names remain supported.
+`mise exec --` loads the ignored `.env` and redacts its values from mise output.
+The file uses `APPLE_ID`, `APPLE_ID_PASSWORD`, `DEVELOPER_ID_APPLICATION`, and
+`TEAM_ID`. On the first release, the script validates those values and stores
+the [app-specific password](https://support.apple.com/102654) in the
+`RecoNotary` Keychain profile. Later releases reuse the Keychain profile.
+`NOTARY_PROFILE` defaults to `RecoNotary`, and the older `NOTARY_APPLE_ID`,
+`DEVELOPER_IDENTITY`, and `DEVELOPMENT_TEAM` names remain supported.
 
 Before each release, update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in Xcode, then commit and push those changes. Run the full release with:
 
 ```sh
-scripts/publish-release.sh --publish
+mise exec -- scripts/publish-release.sh --publish
 ```
 
 That command requires a clean branch synchronized with its upstream, creates a universal archive, uploads it through the Xcode account configured on the Mac, waits for Apple notarization, exports and verifies the stapled app, creates the ZIP and DMG, separately notarizes the outer DMG, verifies checksums, creates the GitHub Release, then replaces `/Applications/Reco.app` and launches it. Use `--dry-run` to inspect the resolved plan, `--skip-install` to leave the installed app untouched, or pass an existing notarized `.app` path to skip the archive and app-notarization stages. `--skip-dmg-notarization` is available only as an explicit exception and is not recommended for public releases.

@@ -119,6 +119,8 @@ fi
 
 codesign --verify --strict "$INSTALL_PATH"
 codesign --verify --strict "$INSTALL_PATH/$CLI_PATH"
+grep -q 'flags=.*runtime' < <(codesign -dvvv "$INSTALL_PATH/$CLI_PATH" 2>&1) \
+    || fail "installed companion CLI is missing hardened runtime"
 open "$INSTALL_PATH"
 for _ in $(seq 50); do pgrep -x "$APP_NAME" >/dev/null && break; sleep 0.1; done
 pgrep -x "$APP_NAME" >/dev/null || fail "$APP_NAME did not launch"

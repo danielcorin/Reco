@@ -240,7 +240,7 @@ prepare_github_release() {
 }
 
 verify_app() {
-    local actual_version actual_build actual_bundle actual_team signature_info executable architectures helper
+    local actual_version actual_build actual_bundle actual_team signature_info executable architectures helper helper_signature
 
     echo "Verifying exported app..."
     codesign --verify --deep --strict --verbose=4 "$APP_PATH"
@@ -263,6 +263,8 @@ verify_app() {
     grep -q 'flags=.*runtime' <<< "$signature_info" || fail "the exported app is missing hardened runtime"
     [[ -x "$helper" ]] || fail "the exported app is missing its reco companion CLI"
     codesign --verify --strict --verbose=4 "$helper"
+    helper_signature="$(codesign -dvvv "$helper" 2>&1)"
+    grep -q 'flags=.*runtime' <<< "$helper_signature" || fail "the reco companion CLI is missing hardened runtime"
 
     case " $architectures " in
         *" arm64 "*) ;;

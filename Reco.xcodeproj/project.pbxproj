@@ -605,6 +605,7 @@
 		C0DEC1253001D80200EEF7E8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_MODULE_NAME = RecoCommand;
 				PRODUCT_NAME = reco;
@@ -617,6 +618,7 @@
 		C0DEC1263001D80200EEF7E8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_MODULE_NAME = RecoCommand;
 				PRODUCT_NAME = reco;

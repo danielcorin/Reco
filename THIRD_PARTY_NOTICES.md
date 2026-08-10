@@ -1,6 +1,35 @@
 # Third-party notices
 
-This notice was audited against the dependency versions resolved on 2026-07-13. It is included in Reco's application bundle. Keep it and `LICENSE` with redistributed binaries.
+This notice was audited against the dependency versions resolved on 2026-08-01. It is included in Reco's application bundle. Keep it and `LICENSE` with redistributed binaries.
+
+## Swift TOML 2.0.0
+
+Reco links [Swift TOML 2.0.0](https://github.com/mattt/swift-toml/tree/2.0.0)
+at revision `827506c90475e82d5a7f191f950fb3025cbdc0d6`. Swift TOML is
+licensed under the MIT License:
+
+Copyright 2025 Mattt (<https://mat.tt>)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Swift TOML bundles [toml++ 3.4.0](https://github.com/marzer/tomlplusplus/tree/v3.4.0),
+also under the MIT License, with copyright © Mark Gillard
+<mark.gillard@outlook.com.au>. The same permission and disclaimer above apply.
 
 ## FluidAudio 0.15.5
 

@@ -3,8 +3,10 @@ import SwiftUI
 
 struct MenuContentView: View {
     @ObservedObject var coordinator: DictationCoordinator
-    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Binding var showMenuBarIcon: Bool
+    let configurationError: String?
+    @State private var launchAtLogin = false
+    @State private var cliInstallResult: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -90,6 +92,27 @@ struct MenuContentView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            HStack {
+                Text("Command line")
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button(CLIInstaller.isInstalled ? "Installed" : "Install…") {
+                    installCLI()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(CLIInstaller.isInstalled)
+            }
+
+            if let cliInstallResult {
+                Text(cliInstallResult)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
             if coordinator.needsPermissions {
                 Divider()
 
@@ -107,6 +130,13 @@ struct MenuContentView: View {
 
             if let error = coordinator.errorMessage {
                 Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let configurationError {
+                Text(configurationError)
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -155,7 +185,13 @@ struct MenuContentView: View {
         .frame(width: 290)
         .onAppear {
             coordinator.startPermissionPolling()
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            let currentLaunchAtLogin = SMAppService.mainApp.status == .enabled
+            if launchAtLogin != currentLaunchAtLogin {
+                launchAtLogin = currentLaunchAtLogin
+            }
+            if cliInstallResult != nil {
+                cliInstallResult = nil
+            }
         }
         .onDisappear {
             coordinator.stopPermissionPolling()
@@ -219,5 +255,14 @@ struct MenuContentView: View {
     private func showAboutPanel() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSApplication.shared.orderFrontStandardAboutPanel(nil)
+    }
+
+    private func installCLI() {
+        do {
+            let destination = try CLIInstaller.install()
+            cliInstallResult = "Installed at \(destination.path)"
+        } catch {
+            cliInstallResult = error.localizedDescription
+        }
     }
 }

@@ -240,7 +240,7 @@ prepare_github_release() {
 }
 
 verify_app() {
-    local actual_version actual_build actual_bundle actual_team signature_info executable architectures
+    local actual_version actual_build actual_bundle actual_team signature_info executable architectures helper
 
     echo "Verifying exported app..."
     codesign --verify --deep --strict --verbose=4 "$APP_PATH"
@@ -254,12 +254,15 @@ verify_app() {
     signature_info="$(codesign -dvvv "$APP_PATH" 2>&1)"
     actual_team="$(awk -F= '/^TeamIdentifier=/ { print $2; exit }' <<< "$signature_info")"
     architectures="$(lipo -archs "$APP_PATH/Contents/MacOS/$executable")"
+    helper="$APP_PATH/Contents/Helpers/reco"
 
     [[ "$actual_version" == "$VERSION" ]] || fail "exported version is $actual_version, expected $VERSION"
     [[ "$actual_build" == "$BUILD_NUMBER" ]] || fail "exported build is $actual_build, expected $BUILD_NUMBER"
     [[ "$actual_bundle" == "$BUNDLE_ID" ]] || fail "exported bundle ID is $actual_bundle, expected $BUNDLE_ID"
     [[ "$actual_team" == "$TEAM_ID" ]] || fail "exported Team ID is $actual_team, expected $TEAM_ID"
     grep -q 'flags=.*runtime' <<< "$signature_info" || fail "the exported app is missing hardened runtime"
+    [[ -x "$helper" ]] || fail "the exported app is missing its reco companion CLI"
+    codesign --verify --strict --verbose=4 "$helper"
 
     case " $architectures " in
         *" arm64 "*) ;;

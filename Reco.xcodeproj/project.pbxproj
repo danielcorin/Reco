@@ -10,10 +10,51 @@
 		C0DEC0DE3001D80200EEF7E8 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC0E13001D80200EEF7E8 /* FluidAudio */; };
 		C0DEC0F53001D80200EEF7E8 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0F33001D80200EEF7E8 /* LICENSE */; };
 		C0DEC0F63001D80200EEF7E8 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0F43001D80200EEF7E8 /* THIRD_PARTY_NOTICES.md */; };
+		C0DEC1003001D80200EEF7E8 /* TOML in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC12D3001D80200EEF7E8 /* TOML */; };
+		C0DEC1013001D80200EEF7E8 /* TOML in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC12F3001D80200EEF7E8 /* TOML */; };
+		C0DEC1023001D80200EEF7E8 /* TOML in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC1303001D80200EEF7E8 /* TOML */; };
+		C0DEC1033001D80200EEF7E8 /* TOML in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC1313001D80200EEF7E8 /* TOML */; };
+		C0DEC1043001D80200EEF7E8 /* libRecoCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C0DEC1103001D80200EEF7E8 /* libRecoCore.a */; };
+		C0DEC1053001D80200EEF7E8 /* libRecoCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C0DEC1103001D80200EEF7E8 /* libRecoCore.a */; };
+		C0DEC1063001D80200EEF7E8 /* libRecoCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C0DEC1103001D80200EEF7E8 /* libRecoCore.a */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C0DEC1073001D80200EEF7E8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1123EDD3001D80200EEF7E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DEC11E3001D80200EEF7E8;
+			remoteInfo = RecoCLI;
+		};
+		C0DEC1083001D80200EEF7E8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1123EDD3001D80200EEF7E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DEC11D3001D80200EEF7E8;
+			remoteInfo = RecoCore;
+		};
+		C0DEC1093001D80200EEF7E8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1123EDD3001D80200EEF7E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DEC11D3001D80200EEF7E8;
+			remoteInfo = RecoCore;
+		};
+		C0DEC10A3001D80200EEF7E8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1123EDD3001D80200EEF7E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DEC11D3001D80200EEF7E8;
+			remoteInfo = RecoCore;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		B1123EE53001D80200EEF7E8 /* Reco.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Reco.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEC1103001D80200EEF7E8 /* libRecoCore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libRecoCore.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEC1113001D80200EEF7E8 /* reco */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = reco; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEC1123001D80200EEF7E8 /* RecoCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RecoCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DEC0F03001D80200EEF7E8 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		C0DEC0F13001D80200EEF7E8 /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = Local.xcconfig.example; sourceTree = "<group>"; };
 		C0DEC0F33001D80200EEF7E8 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
@@ -26,6 +67,21 @@
 			path = Reco;
 			sourceTree = "<group>";
 		};
+		C0DEC1133001D80200EEF7E8 /* RecoCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RecoCore;
+			sourceTree = "<group>";
+		};
+		C0DEC1143001D80200EEF7E8 /* RecoCLI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RecoCLI;
+			sourceTree = "<group>";
+		};
+		C0DEC1153001D80200EEF7E8 /* RecoCoreTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RecoCoreTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,6 +90,34 @@
 			buildActionMask = 2147483647;
 			files = (
 				C0DEC0DE3001D80200EEF7E8 /* FluidAudio in Frameworks */,
+				C0DEC1003001D80200EEF7E8 /* TOML in Frameworks */,
+				C0DEC1043001D80200EEF7E8 /* libRecoCore.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DEC1173001D80200EEF7E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0DEC1013001D80200EEF7E8 /* TOML in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DEC1193001D80200EEF7E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0DEC1023001D80200EEF7E8 /* TOML in Frameworks */,
+				C0DEC1053001D80200EEF7E8 /* libRecoCore.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DEC11B3001D80200EEF7E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0DEC1033001D80200EEF7E8 /* TOML in Frameworks */,
+				C0DEC1063001D80200EEF7E8 /* libRecoCore.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -47,6 +131,9 @@
 				C0DEC0F43001D80200EEF7E8 /* THIRD_PARTY_NOTICES.md */,
 				C0DEC0F23001D80200EEF7E8 /* Configuration */,
 				B1123EE73001D80200EEF7E8 /* Reco */,
+				C0DEC1133001D80200EEF7E8 /* RecoCore */,
+				C0DEC1143001D80200EEF7E8 /* RecoCLI */,
+				C0DEC1153001D80200EEF7E8 /* RecoCoreTests */,
 				B1123EE63001D80200EEF7E8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -64,6 +151,9 @@
 			isa = PBXGroup;
 			children = (
 				B1123EE53001D80200EEF7E8 /* Reco.app */,
+				C0DEC1103001D80200EEF7E8 /* libRecoCore.a */,
+				C0DEC1113001D80200EEF7E8 /* reco */,
+				C0DEC1123001D80200EEF7E8 /* RecoCoreTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,10 +168,13 @@
 				B1123EE13001D80200EEF7E8 /* Sources */,
 				B1123EE23001D80200EEF7E8 /* Frameworks */,
 				B1123EE33001D80200EEF7E8 /* Resources */,
+				C0DEC11C3001D80200EEF7E8 /* Embed Reco CLI */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C0DEC10B3001D80200EEF7E8 /* PBXTargetDependency */,
+				C0DEC10C3001D80200EEF7E8 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B1123EE73001D80200EEF7E8 /* Reco */,
@@ -89,10 +182,79 @@
 			name = Reco;
 			packageProductDependencies = (
 				C0DEC0E13001D80200EEF7E8 /* FluidAudio */,
+				C0DEC12D3001D80200EEF7E8 /* TOML */,
 			);
 			productName = Reco;
 			productReference = B1123EE53001D80200EEF7E8 /* Reco.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C0DEC11D3001D80200EEF7E8 /* RecoCore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DEC1203001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCore" */;
+			buildPhases = (
+				C0DEC1163001D80200EEF7E8 /* Sources */,
+				C0DEC1173001D80200EEF7E8 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0DEC1133001D80200EEF7E8 /* RecoCore */,
+			);
+			name = RecoCore;
+			packageProductDependencies = (
+				C0DEC12F3001D80200EEF7E8 /* TOML */,
+			);
+			productName = RecoCore;
+			productReference = C0DEC1103001D80200EEF7E8 /* libRecoCore.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+		C0DEC11E3001D80200EEF7E8 /* RecoCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DEC1213001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCLI" */;
+			buildPhases = (
+				C0DEC1183001D80200EEF7E8 /* Sources */,
+				C0DEC1193001D80200EEF7E8 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C0DEC10D3001D80200EEF7E8 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C0DEC1143001D80200EEF7E8 /* RecoCLI */,
+			);
+			name = RecoCLI;
+			packageProductDependencies = (
+				C0DEC1303001D80200EEF7E8 /* TOML */,
+			);
+			productName = reco;
+			productReference = C0DEC1113001D80200EEF7E8 /* reco */;
+			productType = "com.apple.product-type.tool";
+		};
+		C0DEC11F3001D80200EEF7E8 /* RecoCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DEC1223001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCoreTests" */;
+			buildPhases = (
+				C0DEC11A3001D80200EEF7E8 /* Sources */,
+				C0DEC11B3001D80200EEF7E8 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C0DEC10E3001D80200EEF7E8 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C0DEC1153001D80200EEF7E8 /* RecoCoreTests */,
+			);
+			name = RecoCoreTests;
+			packageProductDependencies = (
+				C0DEC1313001D80200EEF7E8 /* TOML */,
+			);
+			productName = RecoCoreTests;
+			productReference = C0DEC1123001D80200EEF7E8 /* RecoCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -105,6 +267,15 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					B1123EE43001D80200EEF7E8 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					C0DEC11D3001D80200EEF7E8 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					C0DEC11E3001D80200EEF7E8 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					C0DEC11F3001D80200EEF7E8 = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
 				};
@@ -120,6 +291,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C0DEC0E03001D80200EEF7E8 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B1123EE63001D80200EEF7E8 /* Products */;
@@ -127,6 +299,9 @@
 			projectRoot = "";
 			targets = (
 				B1123EE43001D80200EEF7E8 /* Reco */,
+				C0DEC11D3001D80200EEF7E8 /* RecoCore */,
+				C0DEC11E3001D80200EEF7E8 /* RecoCLI */,
+				C0DEC11F3001D80200EEF7E8 /* RecoCoreTests */,
 			);
 		};
 /* End PBXProject section */
@@ -151,7 +326,70 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DEC1163001D80200EEF7E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DEC1183001D80200EEF7E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DEC11A3001D80200EEF7E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C0DEC11C3001D80200EEF7E8 /* Embed Reco CLI */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/reco",
+			);
+			name = "Embed Reco CLI";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/reco",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nditto \"${BUILT_PRODUCTS_DIR}/reco\" \"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers/reco\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C0DEC10B3001D80200EEF7E8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DEC11E3001D80200EEF7E8 /* RecoCLI */;
+			targetProxy = C0DEC1073001D80200EEF7E8 /* PBXContainerItemProxy */;
+		};
+		C0DEC10C3001D80200EEF7E8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DEC11D3001D80200EEF7E8 /* RecoCore */;
+			targetProxy = C0DEC1083001D80200EEF7E8 /* PBXContainerItemProxy */;
+		};
+		C0DEC10D3001D80200EEF7E8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DEC11D3001D80200EEF7E8 /* RecoCore */;
+			targetProxy = C0DEC1093001D80200EEF7E8 /* PBXContainerItemProxy */;
+		};
+		C0DEC10E3001D80200EEF7E8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DEC11D3001D80200EEF7E8 /* RecoCore */;
+			targetProxy = C0DEC10A3001D80200EEF7E8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		B1123EEE3001D80200EEF7E8 /* Debug */ = {
@@ -277,10 +515,11 @@
 				CODE_SIGN_ENTITLEMENTS = Reco/Reco.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/Info.plist;
@@ -288,7 +527,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Reco records microphone audio only while its shortcut is active.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.7;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;
 				SDKROOT = macosx;
@@ -312,10 +551,11 @@
 				CODE_SIGN_ENTITLEMENTS = Reco/Reco.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/Info.plist;
@@ -323,7 +563,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Reco records microphone audio only while its shortcut is active.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.7;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;
 				SDKROOT = macosx;
@@ -334,6 +574,80 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C0DEC1233001D80200EEF7E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEFINES_MODULE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = RecoCore;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C0DEC1243001D80200EEF7E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEFINES_MODULE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = RecoCore;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C0DEC1253001D80200EEF7E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_MODULE_NAME = RecoCommand;
+				PRODUCT_NAME = reco;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C0DEC1263001D80200EEF7E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_MODULE_NAME = RecoCommand;
+				PRODUCT_NAME = reco;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C0DEC12B3001D80200EEF7E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.danielcorin.RecoCoreTests;
+				PRODUCT_NAME = RecoCoreTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C0DEC12C3001D80200EEF7E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.danielcorin.RecoCoreTests;
+				PRODUCT_NAME = RecoCoreTests;
+				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -359,6 +673,33 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C0DEC1203001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DEC1233001D80200EEF7E8 /* Debug */,
+				C0DEC1243001D80200EEF7E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0DEC1213001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DEC1253001D80200EEF7E8 /* Debug */,
+				C0DEC1263001D80200EEF7E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0DEC1223001D80200EEF7E8 /* Build configuration list for PBXNativeTarget "RecoCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DEC12B3001D80200EEF7E8 /* Debug */,
+				C0DEC12C3001D80200EEF7E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -370,6 +711,14 @@
 				version = 0.15.5;
 			};
 		};
+		C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mattt/swift-toml.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -377,6 +726,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0DEC0E03001D80200EEF7E8 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		C0DEC12D3001D80200EEF7E8 /* TOML */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */;
+			productName = TOML;
+		};
+		C0DEC12F3001D80200EEF7E8 /* TOML */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */;
+			productName = TOML;
+		};
+		C0DEC1303001D80200EEF7E8 /* TOML */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */;
+			productName = TOML;
+		};
+		C0DEC1313001D80200EEF7E8 /* TOML */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC12E3001D80200EEF7E8 /* XCRemoteSwiftPackageReference "swift-toml" */;
+			productName = TOML;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

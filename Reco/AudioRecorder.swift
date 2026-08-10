@@ -33,12 +33,23 @@ final class AudioRecorder {
     var onLevel: (@MainActor (Float) -> Void)?
 
     private static let logger = Logger(subsystem: "llc.wvlen.Reco", category: "AudioRecorder")
-    private var engine: AVAudioEngine?
     private var session: RecordingSession?
+    private var microphoneCapture: MicrophoneCapture?
     private var stream: SCStream?
     private var streamOutput: SystemAudioStreamOutput?
     private var streamDelegate: SystemAudioStreamDelegate?
-    private var inputTapInstalled = false
+
+    // Audio devices briefly disappear while Core Audio switches routes (most
+    // often when a display, dock, or Bluetooth headset connects). Give the
+    // replacement device time to become usable instead of making the user
+    // relaunch Reco.
+    private static let microphoneRetryDelays: [Duration] = [
+        .zero,
+        .milliseconds(100),
+        .milliseconds(200),
+        .milliseconds(400),
+        .milliseconds(800),
+    ]
 
     func start() async throws {
         guard session == nil else {
@@ -49,23 +60,6 @@ final class AudioRecorder {
         }
         guard CGPreflightScreenCaptureAccess() else {
             throw AudioRecorderError.systemAudioPermissionDenied
-        }
-        guard AVCaptureDevice.default(for: .audio) != nil else {
-            throw AudioRecorderError.noInput
-        }
-
-        // Create a fresh engine for every recording. A long-lived engine can
-        // retain a stale I/O graph after the default microphone disconnects or
-        // changes while Reco is idle.
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        let hardwareFormat = input.inputFormat(forBus: 0)
-        guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
-            throw AudioRecorderError.noInput
-        }
-        let inputFormat = input.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            throw AudioRecorderError.noInput
         }
         guard
             let recordingFormat = AVAudioFormat(
@@ -83,49 +77,11 @@ final class AudioRecorder {
         let session = try RecordingSession(baseURL: baseURL, format: recordingFormat)
         self.session = session
 
-        let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, time in
-            session.writeMicrophone(buffer, hostTime: time.hostTime)
-
-            guard session.shouldPublishLevel(),
-                let samples = buffer.floatChannelData?[0],
-                buffer.frameLength > 0
-            else { return }
-
-            var rms: Float = 0
-            vDSP_rmsqv(samples, 1, &rms, vDSP_Length(buffer.frameLength))
-            let decibels = 20 * log10(max(rms, 0.0001))
-            let normalized = min(max((decibels + 50) / 50, 0), 1)
-
-            Task { @MainActor [weak self] in
-                self?.onLevel?(normalized)
-            }
-        }
-
         do {
-            // AVAudioNode.installTap reports some unavailable-device failures
-            // as Objective-C exceptions instead of Swift errors. Catch that
-            // narrow API boundary so AppKit cannot swallow the exception and
-            // leave SwiftUI's executor state damaged.
-            do {
-                try RecoExceptionCatcher.perform {
-                    input.installTap(
-                        onBus: 0,
-                        bufferSize: 2048,
-                        format: inputFormat,
-                        block: tapBlock
-                    )
-                }
-            } catch {
-                Self.logger.error(
-                    "Could not install microphone tap: \(error.localizedDescription, privacy: .public)"
-                )
-                throw AudioRecorderError.noInput
-            }
-            inputTapInstalled = true
-            self.engine = engine
-
-            engine.prepare()
-            try engine.start()
+            microphoneCapture = try await startMicrophoneCapture(
+                session: session,
+                format: recordingFormat
+            )
 
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false,
@@ -188,7 +144,7 @@ final class AudioRecorder {
         }
 
         session.beginStopping()
-        stopMicrophoneCapture()
+        await stopMicrophoneCapture()
 
         let streamToStop = stream
         stream = nil
@@ -230,7 +186,7 @@ final class AudioRecorder {
 
     private func discardCurrentRecording() async {
         session?.beginStopping()
-        stopMicrophoneCapture()
+        await stopMicrophoneCapture()
 
         let streamToStop = stream
         stream = nil
@@ -245,14 +201,56 @@ final class AudioRecorder {
         result?.removeAllFiles()
     }
 
-    private func stopMicrophoneCapture() {
-        guard let engine else { return }
-        if inputTapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            inputTapInstalled = false
+    private func startMicrophoneCapture(
+        session: RecordingSession,
+        format: AVAudioFormat
+    ) async throws -> MicrophoneCapture {
+        for (attempt, delay) in Self.microphoneRetryDelays.enumerated() {
+            if delay != .zero {
+                try await Task.sleep(for: delay)
+            }
+
+            guard let device = AVCaptureDevice.default(for: .audio) else {
+                Self.logger.error(
+                    "No default microphone on attempt \(attempt + 1, privacy: .public)"
+                )
+                continue
+            }
+
+            do {
+                let capture = try MicrophoneCapture(
+                    device: device,
+                    recordingSession: session,
+                    outputFormat: format
+                ) { [weak self] level in
+                    self?.onLevel?(level)
+                }
+                guard await capture.start() else {
+                    await capture.stop()
+                    Self.logger.error(
+                        "Microphone \(device.localizedName, privacy: .public) did not start on attempt \(attempt + 1, privacy: .public)"
+                    )
+                    continue
+                }
+
+                Self.logger.info(
+                    "Microphone capture started with \(device.localizedName, privacy: .public)"
+                )
+                return capture
+            } catch {
+                Self.logger.error(
+                    "Could not start microphone \(device.localizedName, privacy: .public) on attempt \(attempt + 1, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
-        engine.stop()
-        self.engine = nil
+
+        throw AudioRecorderError.noInput
+    }
+
+    private func stopMicrophoneCapture() async {
+        let capture = microphoneCapture
+        microphoneCapture = nil
+        await capture?.stop()
     }
 
     private func microphoneAccess() async -> Bool {
@@ -321,11 +319,12 @@ private nonisolated final class RecordingSession: Sendable {
             ))
     }
 
-    func writeMicrophone(_ buffer: AVAudioPCMBuffer, hostTime: UInt64) {
+    func writeMicrophone(_ buffer: AVAudioPCMBuffer, presentationTime: CMTime) {
+        let presentationSeconds = CMTimeGetSeconds(presentationTime)
         let startTime =
-            hostTime == 0
-            ? Self.seconds(forHostTime: AudioGetCurrentHostTime())
-            : Self.seconds(forHostTime: hostTime)
+            presentationTime.isValid && presentationSeconds.isFinite
+            ? presentationSeconds
+            : Self.seconds(forHostTime: AudioGetCurrentHostTime())
         write(buffer, source: .microphone, startTime: startTime)
     }
 
@@ -491,6 +490,149 @@ private nonisolated final class TimedTrackWriter {
             }
             try file.write(from: silence)
             remaining -= AVAudioFramePosition(frames)
+        }
+    }
+}
+
+/// Captures only the selected microphone device. AVAudioEngine uses a hidden
+/// per-process aggregate of the default input and output devices on macOS. That
+/// aggregate can retain a removed device after docks, displays, or Bluetooth
+/// routes change, even when a new engine is created. AVCaptureSession binds to
+/// the concrete input device and therefore does not depend on the output route.
+private nonisolated final class MicrophoneCapture: NSObject,
+    AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable
+{
+    private static let logger = Logger(subsystem: "llc.wvlen.Reco", category: "Microphone")
+    private static let controlQueue = DispatchQueue(
+        label: "llc.wvlen.Reco.microphone-control",
+        qos: .userInitiated
+    )
+
+    private let captureSession = AVCaptureSession()
+    private let output = AVCaptureAudioDataOutput()
+    private let callbackQueue = DispatchQueue(
+        label: "llc.wvlen.Reco.microphone-samples",
+        qos: .userInteractive
+    )
+    private let recordingSession: RecordingSession
+    private let onLevel: @MainActor @Sendable (Float) -> Void
+    private let loggedFirstBuffer = OSAllocatedUnfairLock(initialState: false)
+
+    init(
+        device: AVCaptureDevice,
+        recordingSession: RecordingSession,
+        outputFormat: AVAudioFormat,
+        onLevel: @escaping @MainActor @Sendable (Float) -> Void
+    ) throws {
+        self.recordingSession = recordingSession
+        self.onLevel = onLevel
+        super.init()
+
+        let input = try AVCaptureDeviceInput(device: device)
+        captureSession.beginConfiguration()
+        defer { captureSession.commitConfiguration() }
+
+        guard captureSession.canAddInput(input) else {
+            throw AudioRecorderError.noInput
+        }
+        captureSession.addInput(input)
+
+        // Ask AVFoundation for the same format used by the track writer. This
+        // keeps level metering simple and avoids performing conversion work on
+        // the real-time sample callback.
+        output.audioSettings = outputFormat.settings
+        output.setSampleBufferDelegate(self, queue: callbackQueue)
+        guard captureSession.canAddOutput(output) else {
+            output.setSampleBufferDelegate(nil, queue: nil)
+            throw AudioRecorderError.noInput
+        }
+        captureSession.addOutput(output)
+    }
+
+    func start() async -> Bool {
+        await withCheckedContinuation { continuation in
+            Self.controlQueue.async { [captureSession] in
+                captureSession.startRunning()
+                continuation.resume(returning: captureSession.isRunning)
+            }
+        }
+    }
+
+    func stop() async {
+        output.setSampleBufferDelegate(nil, queue: nil)
+        await withCheckedContinuation { continuation in
+            Self.controlQueue.async { [captureSession] in
+                if captureSession.isRunning {
+                    captureSession.stopRunning()
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard sampleBuffer.isValid,
+            CMSampleBufferDataIsReady(sampleBuffer),
+            let description = sampleBuffer.formatDescription
+        else {
+            return
+        }
+        let audioFormat = AVAudioFormat(cmAudioFormatDescription: description)
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frameCount > 0,
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: audioFormat,
+                frameCapacity: AVAudioFrameCount(frameCount)
+            )
+        else {
+            return
+        }
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+
+        do {
+            try sampleBuffer.copyPCMData(
+                fromRange: 0..<frameCount,
+                into: buffer.mutableAudioBufferList
+            )
+            let shouldLog = loggedFirstBuffer.withLock { logged in
+                guard !logged else { return false }
+                logged = true
+                return true
+            }
+            if shouldLog {
+                Self.logger.info(
+                    "Received first microphone buffer: frames=\(frameCount), sampleRate=\(audioFormat.sampleRate), channels=\(audioFormat.channelCount)"
+                )
+            }
+
+            recordingSession.writeMicrophone(
+                buffer,
+                presentationTime: sampleBuffer.presentationTimeStamp
+            )
+            publishLevel(from: buffer)
+        } catch {
+            Self.logger.error("Couldn’t copy microphone buffer: \(error.localizedDescription)")
+            recordingSession.recordError(error)
+        }
+    }
+
+    private func publishLevel(from buffer: AVAudioPCMBuffer) {
+        guard recordingSession.shouldPublishLevel(),
+            let samples = buffer.floatChannelData?[0],
+            buffer.frameLength > 0
+        else { return }
+
+        var rms: Float = 0
+        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(buffer.frameLength))
+        let decibels = 20 * log10(max(rms, 0.0001))
+        let normalized = min(max((decibels + 50) / 50, 0), 1)
+
+        Task { @MainActor [onLevel] in
+            onLevel(normalized)
         }
     }
 }

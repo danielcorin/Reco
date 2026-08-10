@@ -42,8 +42,58 @@ xcodebuild \
   -scheme Reco \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO \
-  build
+  test
 ```
+
+The app build embeds the `reco` companion CLI at
+`Reco.app/Contents/Helpers/reco`.
+
+## Configuration and CLI
+
+See the [configuration guide](docs/Configuration.md) for the complete schema,
+path rules, CLI behavior, direct-edit workflow, and migration details.
+
+Reco uses a human-readable TOML file for runtime configuration:
+
+```text
+$XDG_CONFIG_HOME/reco/config.toml
+```
+
+When `XDG_CONFIG_HOME` is unset or relative, Reco uses
+`~/.config/reco/config.toml`. The file is optional and contains only values
+that differ from Reco's built-in defaults. For example:
+
+```toml
+hotkey = "shift+command+space"
+show-menu-bar-icon = false
+```
+
+Changing the shortcut or menu-bar visibility in the app updates this same
+file. Existing `UserDefaults` values from older Reco versions are migrated on
+first launch. Manual edits are watched while Reco runs; invalid edits leave the
+last valid configuration active and appear as an error in the menu.
+
+Choose **Install…** beside **Command line** in Reco's menu to symlink the
+bundled executable to `~/.local/bin/reco`. Ensure `~/.local/bin` is on `PATH`,
+then use:
+
+```sh
+reco config path
+reco config get hotkey
+reco config set hotkey command+shift+space
+reco config set show-menu-bar-icon false
+reco config unset hotkey
+reco config list             # overrides only
+reco config list --all       # effective values and their source
+reco config validate
+reco config reload
+```
+
+Every command accepts `--json`. `set` validates values before an atomic write;
+setting a key to its built-in default removes that override. The configuration
+file is for non-secret user preferences. Credentials belong in Keychain, and
+build/signing configuration remains in `Configuration/Local.xcconfig` or the
+ignored `.env` file.
 
 ## Publishing a release
 
@@ -86,6 +136,7 @@ Microphone and system audio are captured only while the shortcut is active. Reco
 - Reco source: [Apache License 2.0](LICENSE).
 - [FluidAudio 0.15.5](https://github.com/FluidInference/FluidAudio/tree/v0.15.5): Apache-2.0. FluidAudio includes Fastcluster code under BSD-2-Clause and code based on VBx under Apache-2.0.
 - [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml): treated as CC BY 4.0, matching the repository metadata and its NVIDIA base model. The weights are downloaded at runtime and are not included in this repository.
+- [Swift TOML 2.0.0](https://github.com/mattt/swift-toml/tree/2.0.0), including toml++ 3.4.0: MIT.
 
 The converted model repository's metadata and NVIDIA base model specify CC BY 4.0, although a sentence in the converted model card says Apache-2.0. Reco conservatively follows CC BY 4.0. Distributors that bundle or mirror the weights should retain attribution and seek clarification from Fluid Inference.
 

@@ -56,6 +56,7 @@ fi
 APP_NAME="$(basename "${projects[0]}" .xcodeproj)"
 BUILT_APP="build/Build/Products/Release/$APP_NAME.app"
 INSTALL_PATH="/Applications/$APP_NAME.app"
+CLI_PATH="Contents/Helpers/reco"
 
 echo "Building $APP_NAME (Release, Developer ID, team $TEAM_ID)..."
 # Explicit template keeps mktemp portable across BSD and GNU (nix) variants.
@@ -72,6 +73,7 @@ xcb -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" -configuration Release \
     || { tail -40 "$build_log" >&2; fail "build failed; installed copy left untouched (full log: $build_log)"; }
 
 [[ -d "$BUILT_APP" ]] || fail "no app produced at $BUILT_APP"
+[[ -x "$BUILT_APP/$CLI_PATH" ]] || fail "no companion CLI produced at $BUILT_APP/$CLI_PATH"
 signing_info="$(codesign -dvvv "$BUILT_APP" 2>&1)"
 grep -q "^Authority=Developer ID Application" <<<"$signing_info" \
     || fail "build is not Developer ID signed; the Accessibility pane would refuse to register it"
@@ -116,6 +118,7 @@ if [[ -n "$old_requirement" && "$old_requirement" != "$new_requirement" ]]; then
 fi
 
 codesign --verify --strict "$INSTALL_PATH"
+codesign --verify --strict "$INSTALL_PATH/$CLI_PATH"
 open "$INSTALL_PATH"
 for _ in $(seq 50); do pgrep -x "$APP_NAME" >/dev/null && break; sleep 0.1; done
 pgrep -x "$APP_NAME" >/dev/null || fail "$APP_NAME did not launch"

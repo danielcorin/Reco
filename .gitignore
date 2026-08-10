@@ -6,6 +6,7 @@ build/
 dist/
 *.xcarchive
 *.dSYM
+*.profraw
 *.xcuserstate
 xcuserdata/
 

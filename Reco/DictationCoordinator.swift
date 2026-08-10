@@ -63,20 +63,15 @@ final class DictationCoordinator: ObservableObject {
     private var latchRequestedWhileStarting = false
     private var isRequestingPermissions = false
 
-    private static let hotkeyDefaultsKey = "hotkey"
     private static let doubleTapWindow: Duration = .milliseconds(280)
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
     private static let missingPasteAccessMessage =
         "Text was copied, but Accessibility access is required to paste it automatically."
 
-    init() {
-        if let data = UserDefaults.standard.data(forKey: Self.hotkeyDefaultsKey),
-            let saved = try? JSONDecoder().decode(Hotkey.self, from: data)
-        {
-            hotkey = saved
-        } else {
-            hotkey = .defaultHotkey
-        }
+    var onHotkeyChanged: ((Hotkey) throws -> Void)?
+
+    init(initialHotkey: Hotkey) {
+        hotkey = initialHotkey
     }
 
     var menuBarSymbol: String {
@@ -177,7 +172,17 @@ final class DictationCoordinator: ObservableObject {
         shortcutCaptureTask?.cancel()
         shortcutCaptureTask = nil
         hotkeyMonitor.cancelCapture()
-        isCapturingShortcut = false
+        if isCapturingShortcut {
+            isCapturingShortcut = false
+        }
+    }
+
+    func applyConfiguredHotkey(_ configuredHotkey: Hotkey) throws {
+        guard configuredHotkey != hotkey else { return }
+        guard hotkeyMonitor.updateHotkey(configuredHotkey) else {
+            throw HotkeyApplicationError.registrationFailed(configuredHotkey.displayName)
+        }
+        hotkey = configuredHotkey
     }
 
     func requestPermission(_ permission: Permission) {
@@ -239,8 +244,17 @@ final class DictationCoordinator: ObservableObject {
             granted.insert(.accessibility)
         }
 
-        grantedPermissions = granted
-        needsPermissions = granted.count != Permission.allCases.count
+        // MenuBarExtra can invoke onAppear again while processing an observed
+        // change. @Published emits even when a value is assigned to itself, so
+        // only publish real permission changes or SwiftUI can enter a render loop.
+        if grantedPermissions != granted {
+            grantedPermissions = granted
+        }
+
+        let missingPermissions = granted.count != Permission.allCases.count
+        if needsPermissions != missingPermissions {
+            needsPermissions = missingPermissions
+        }
 
         if granted.contains(.accessibility), errorMessage == Self.missingPasteAccessMessage {
             errorMessage = nil
@@ -299,13 +313,17 @@ final class DictationCoordinator: ObservableObject {
             return
         }
 
+        let previousHotkey = hotkey
         guard hotkeyMonitor.updateHotkey(shortcut) else {
             errorMessage = "That shortcut couldn’t be registered. Choose a different combination."
             return
         }
-        hotkey = shortcut
-        if let data = try? JSONEncoder().encode(shortcut) {
-            UserDefaults.standard.set(data, forKey: Self.hotkeyDefaultsKey)
+        do {
+            try onHotkeyChanged?(shortcut)
+            hotkey = shortcut
+        } catch {
+            _ = hotkeyMonitor.updateHotkey(previousHotkey)
+            errorMessage = "Couldn’t save the shortcut: \(error.localizedDescription)"
         }
     }
 
@@ -557,6 +575,17 @@ final class DictationCoordinator: ObservableObject {
             try? await Task.sleep(for: .seconds(2))
             guard let self, self.state == .failed else { return }
             self.state = .ready
+        }
+    }
+}
+
+private enum HotkeyApplicationError: LocalizedError {
+    case registrationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .registrationFailed(let shortcut):
+            "Couldn’t register \(shortcut). Choose a different shortcut."
         }
     }
 }

@@ -5,20 +5,32 @@
 //  Created by Daniel Corin on 7/10/26.
 //
 
+import RecoCore
 import SwiftUI
 
 @main
 struct RecoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @ObservedObject private var model = RecoAppModel.shared
 
     var body: some Scene {
-        MenuBarExtra(isInserted: $showMenuBarIcon) {
-            MenuContentView(coordinator: appDelegate.coordinator)
+        MenuBarExtra(isInserted: showMenuBarIconBinding) {
+            MenuContentView(
+                coordinator: model.coordinator,
+                showMenuBarIcon: showMenuBarIconBinding,
+                configurationError: model.configurationError
+            )
         } label: {
-            MenuBarLabel(coordinator: appDelegate.coordinator)
+            MenuBarLabel(coordinator: model.coordinator)
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private var showMenuBarIconBinding: Binding<Bool> {
+        Binding(
+            get: { model.configuration.showMenuBarIcon },
+            set: { model.setShowMenuBarIcon($0) }
+        )
     }
 }
 
@@ -33,15 +45,15 @@ private struct MenuBarLabel: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let coordinator = DictationCoordinator()
+    private let model = RecoAppModel.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        coordinator.start()
+        model.start()
     }
 
     // Launching Reco while it's already running restores a hidden menu bar icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        UserDefaults.standard.set(true, forKey: "showMenuBarIcon")
+        model.setShowMenuBarIcon(true)
         return false
     }
 }

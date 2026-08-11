@@ -4,7 +4,7 @@
   <img src="Reco/Assets.xcassets/AppIcon.appiconset/RecoIcon-256.png" width="128" height="128" alt="Reco app icon">
 </p>
 
-Reco is a minimal macOS menu bar transcription app. Hold a configurable global shortcut to record the default microphone and system audio, release it to transcribe their mixed audio, and Reco copies and pastes the result into the active app. Double-tap the shortcut to latch recording on, then press it once to stop.
+Reco is a minimal macOS menu bar transcription app. Hold a configurable global shortcut to record a connected microphone, system audio, or both; release it to transcribe the captured audio, and Reco copies and pastes the result into the active app. Reco discovers connected microphones automatically and prefers the Mac's built-in microphone unless you choose another input. Double-tap the shortcut to latch recording on, then press it once to stop.
 
 Transcription runs locally with NVIDIA Parakeet TDT 0.6B v3 through FluidAudio and Core ML. The model is downloaded from Hugging Face on first launch; after that download, recorded audio is processed on-device. Temporary recordings are deleted after transcription.
 

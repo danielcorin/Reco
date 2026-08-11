@@ -39,6 +39,12 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
+    enum MicrophoneSelection: Hashable {
+        case automatic
+        case device(String)
+        case off
+    }
+
     @Published private(set) var state: State = .loadingModel
     @Published private(set) var hotkey: Hotkey
     @Published private(set) var isCapturingShortcut = false
@@ -48,6 +54,9 @@ final class DictationCoordinator: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var modelLoadProgress = 0.0
     @Published private(set) var modelLoadDetail = "Downloading model…"
+    @Published private(set) var availableMicrophones: [AudioInputDevice] = []
+    @Published private(set) var microphoneSelection: MicrophoneSelection = .automatic
+    @Published private(set) var capturesSystemAudio = true
 
     private let recorder = AudioRecorder()
     private let transcriber = ParakeetTranscriber()
@@ -56,6 +65,7 @@ final class DictationCoordinator: ObservableObject {
     private var releaseTask: Task<Void, Never>?
     private var shortcutCaptureTask: Task<Void, Never>?
     private var permissionPollCancellable: AnyCancellable?
+    private var audioDeviceObservers: [NSObjectProtocol] = []
     private var started = false
     private var isHotkeyHeld = false
     private var isStartingRecording = false
@@ -101,6 +111,27 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
+    var capturesMicrophone: Bool {
+        microphoneSelection != .off
+    }
+
+    var automaticMicrophoneName: String {
+        let preferred =
+            availableMicrophones.first(where: \.isBuiltIn)
+            ?? availableMicrophones.first
+        return preferred.map { "Automatic · \($0.name)" } ?? "Automatic"
+    }
+
+    var requiredPermissions: [Permission] {
+        Permission.allCases.filter { permission in
+            switch permission {
+            case .microphone: capturesMicrophone
+            case .systemAudio: capturesSystemAudio
+            case .accessibility: true
+            }
+        }
+    }
+
     func isGranted(_ permission: Permission) -> Bool {
         grantedPermissions.contains(permission)
     }
@@ -124,6 +155,8 @@ final class DictationCoordinator: ObservableObject {
         if !hotkeyMonitor.start() {
             errorMessage = "Couldn’t register the shortcut. Choose a different key combination."
         }
+        refreshAudioDevices()
+        startAudioDeviceObservation()
         refreshPermissions()
 
         Task {
@@ -185,6 +218,41 @@ final class DictationCoordinator: ObservableObject {
         hotkey = configuredHotkey
     }
 
+    func selectMicrophone(_ selection: MicrophoneSelection) {
+        guard selection != .off || capturesSystemAudio else { return }
+
+        let resolvedSelection: MicrophoneSelection
+        if case .device(let id) = selection,
+            !availableMicrophones.contains(where: { $0.id == id })
+        {
+            resolvedSelection = .automatic
+        } else {
+            resolvedSelection = selection
+        }
+        guard microphoneSelection != resolvedSelection else { return }
+        microphoneSelection = resolvedSelection
+        refreshPermissions()
+    }
+
+    func setSystemAudioEnabled(_ enabled: Bool) {
+        guard enabled || capturesMicrophone else { return }
+        guard capturesSystemAudio != enabled else { return }
+        capturesSystemAudio = enabled
+        refreshPermissions()
+    }
+
+    func refreshAudioDevices() {
+        let devices = AudioRecorder.availableMicrophones()
+        if availableMicrophones != devices {
+            availableMicrophones = devices
+        }
+        if case .device(let id) = microphoneSelection,
+            !devices.contains(where: { $0.id == id })
+        {
+            microphoneSelection = .automatic
+        }
+    }
+
     func requestPermission(_ permission: Permission) {
         guard !isRequestingPermissions else { return }
         isRequestingPermissions = true
@@ -197,6 +265,7 @@ final class DictationCoordinator: ObservableObject {
                 if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
                     _ = await AVCaptureDevice.requestAccess(for: .audio)
                 }
+                refreshAudioDevices()
             case .systemAudio:
                 if !CGPreflightScreenCaptureAccess() {
                     _ = CGRequestScreenCaptureAccess()
@@ -251,7 +320,7 @@ final class DictationCoordinator: ObservableObject {
             grantedPermissions = granted
         }
 
-        let missingPermissions = granted.count != Permission.allCases.count
+        let missingPermissions = requiredPermissions.contains { !granted.contains($0) }
         if needsPermissions != missingPermissions {
             needsPermissions = missingPermissions
         }
@@ -266,6 +335,7 @@ final class DictationCoordinator: ObservableObject {
     /// SwiftUI's task-modifier lifecycle, which is fragile for MenuBarExtra
     /// views that are repeatedly inserted and removed.
     func startPermissionPolling() {
+        refreshAudioDevices()
         refreshPermissions()
         guard needsPermissions, permissionPollCancellable == nil else { return }
 
@@ -301,6 +371,23 @@ final class DictationCoordinator: ObservableObject {
             NSWorkspace.shared.open(
                 URL(fileURLWithPath: "/System/Applications/System Settings.app")
             )
+        }
+    }
+
+    private func startAudioDeviceObservation() {
+        guard audioDeviceObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        for name in [
+            AVCaptureDevice.wasConnectedNotification,
+            AVCaptureDevice.wasDisconnectedNotification,
+        ] {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) {
+                [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshAudioDevices()
+                }
+            }
+            audioDeviceObservers.append(observer)
         }
     }
 
@@ -383,13 +470,26 @@ final class DictationCoordinator: ObservableObject {
 
     private func beginRecording() {
         guard !isStartingRecording else { return }
+        let microphoneDeviceID: String?
+        switch microphoneSelection {
+        case .automatic, .off:
+            microphoneDeviceID = nil
+        case .device(let id):
+            microphoneDeviceID = id
+        }
+        let shouldCaptureMicrophone = capturesMicrophone
+        let shouldCaptureSystemAudio = capturesSystemAudio
         isStartingRecording = true
         releasedWhileStarting = false
         latchRequestedWhileStarting = false
         errorMessage = nil
         Task {
             do {
-                try await recorder.start()
+                try await recorder.start(
+                    microphoneDeviceID: microphoneDeviceID,
+                    capturesMicrophone: shouldCaptureMicrophone,
+                    capturesSystemAudio: shouldCaptureSystemAudio
+                )
                 let shouldLatch = latchRequestedWhileStarting
                 isStartingRecording = false
                 releasedWhileStarting = false

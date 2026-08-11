@@ -64,6 +64,54 @@ struct MenuContentView: View {
             Divider()
 
             HStack {
+                Text("System audio")
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Toggle("System audio", isOn: systemAudioBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(
+                        coordinator.capturesSystemAudio
+                            && !coordinator.capturesMicrophone
+                    )
+            }
+
+            HStack {
+                Text("Microphone")
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Picker("Microphone", selection: microphoneBinding) {
+                    Text(coordinator.automaticMicrophoneName)
+                        .tag(DictationCoordinator.MicrophoneSelection.automatic)
+
+                    ForEach(coordinator.availableMicrophones) { device in
+                        Text(device.name)
+                            .tag(DictationCoordinator.MicrophoneSelection.device(device.id))
+                    }
+
+                    Text("Off")
+                        .tag(DictationCoordinator.MicrophoneSelection.off)
+                        .disabled(!coordinator.capturesSystemAudio)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(maxWidth: 180)
+            }
+
+            Text("Connected microphones refresh automatically. Changes apply to the next recording.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            HStack {
                 Text("Start at login")
                     .foregroundStyle(.secondary)
 
@@ -122,7 +170,7 @@ struct MenuContentView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    ForEach(DictationCoordinator.Permission.allCases) { permission in
+                    ForEach(coordinator.requiredPermissions) { permission in
                         permissionRow(permission)
                     }
                 }
@@ -249,6 +297,20 @@ struct MenuContentView: View {
         Binding(
             get: { !showMenuBarIcon },
             set: { showMenuBarIcon = !$0 }
+        )
+    }
+
+    private var systemAudioBinding: Binding<Bool> {
+        Binding(
+            get: { coordinator.capturesSystemAudio },
+            set: { coordinator.setSystemAudioEnabled($0) }
+        )
+    }
+
+    private var microphoneBinding: Binding<DictationCoordinator.MicrophoneSelection> {
+        Binding(
+            get: { coordinator.microphoneSelection },
+            set: { coordinator.selectMicrophone($0) }
         )
     }
 

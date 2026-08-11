@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Accelerate
+import CoreAudio
 import CoreGraphics
 import CoreMedia
 @preconcurrency import ScreenCaptureKit
@@ -9,6 +10,7 @@ enum AudioRecorderError: LocalizedError {
     case permissionDenied
     case systemAudioPermissionDenied
     case noInput
+    case noSources
     case notRecording
     case recordingFailed(String)
 
@@ -20,12 +22,20 @@ enum AudioRecorderError: LocalizedError {
             "Screen & System Audio Recording access is required."
         case .noInput:
             "No microphone is available."
+        case .noSources:
+            "Enable a microphone or system audio before recording."
         case .notRecording:
             "No recording is in progress."
         case .recordingFailed(let message):
             "Recording failed: \(message)"
         }
     }
+}
+
+struct AudioInputDevice: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let isBuiltIn: Bool
 }
 
 @MainActor
@@ -51,14 +61,33 @@ final class AudioRecorder {
         .milliseconds(800),
     ]
 
-    func start() async throws {
+    static func availableMicrophones() -> [AudioInputDevice] {
+        microphoneDevices().map { device in
+            AudioInputDevice(
+                id: device.uniqueID,
+                name: device.localizedName,
+                isBuiltIn: isBuiltIn(device)
+            )
+        }
+    }
+
+    func start(
+        microphoneDeviceID: String?,
+        capturesMicrophone: Bool,
+        capturesSystemAudio: Bool
+    ) async throws {
         guard session == nil else {
             throw AudioRecorderError.recordingFailed("A recording is already in progress.")
         }
-        guard await microphoneAccess() else {
-            throw AudioRecorderError.permissionDenied
+        guard capturesMicrophone || capturesSystemAudio else {
+            throw AudioRecorderError.noSources
         }
-        guard CGPreflightScreenCaptureAccess() else {
+        if capturesMicrophone {
+            guard await microphoneAccess() else {
+                throw AudioRecorderError.permissionDenied
+            }
+        }
+        guard !capturesSystemAudio || CGPreflightScreenCaptureAccess() else {
             throw AudioRecorderError.systemAudioPermissionDenied
         }
         guard
@@ -78,57 +107,19 @@ final class AudioRecorder {
         self.session = session
 
         do {
-            microphoneCapture = try await startMicrophoneCapture(
-                session: session,
-                format: recordingFormat
-            )
-
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false,
-                onScreenWindowsOnly: false
-            )
-            let mainDisplayID = CGMainDisplayID()
-            guard
-                let display = content.displays.first(where: { $0.displayID == mainDisplayID })
-                    ?? content.displays.first
-            else {
-                throw AudioRecorderError.recordingFailed("No display is available for system audio capture.")
+            if capturesMicrophone {
+                microphoneCapture = try await startMicrophoneCapture(
+                    deviceID: microphoneDeviceID,
+                    session: session,
+                    format: recordingFormat
+                )
             }
-
-            let currentApp = Bundle.main.bundleIdentifier
-            let excludedApps = content.applications.filter { $0.bundleIdentifier == currentApp }
-            let filter = SCContentFilter(
-                display: display,
-                excludingApplications: excludedApps,
-                exceptingWindows: []
+            if capturesSystemAudio {
+                try await startSystemAudioCapture(session: session, format: recordingFormat)
+            }
+            Self.logger.info(
+                "Audio capture started: microphone=\(capturesMicrophone, privacy: .public), systemAudio=\(capturesSystemAudio, privacy: .public)"
             )
-
-            let configuration = SCStreamConfiguration()
-            configuration.capturesAudio = true
-            configuration.excludesCurrentProcessAudio = true
-            configuration.sampleRate = Int(recordingFormat.sampleRate)
-            configuration.channelCount = Int(recordingFormat.channelCount)
-
-            // Reco consumes only the audio output. Keep the unused video side of
-            // the stream as inexpensive as possible.
-            configuration.width = 2
-            configuration.height = 2
-            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-
-            let output = SystemAudioStreamOutput(session: session)
-            let delegate = SystemAudioStreamDelegate(session: session)
-            let stream = SCStream(filter: filter, configuration: configuration, delegate: delegate)
-            self.streamOutput = output
-            self.streamDelegate = delegate
-            self.stream = stream
-
-            try stream.addStreamOutput(
-                output,
-                type: .audio,
-                sampleHandlerQueue: .global(qos: .userInteractive)
-            )
-            try await stream.startCapture()
-            Self.logger.info("Microphone and system-audio capture started")
         } catch {
             await discardCurrentRecording()
             if let recorderError = error as? AudioRecorderError {
@@ -202,6 +193,7 @@ final class AudioRecorder {
     }
 
     private func startMicrophoneCapture(
+        deviceID: String?,
         session: RecordingSession,
         format: AVAudioFormat
     ) async throws -> MicrophoneCapture {
@@ -210,9 +202,9 @@ final class AudioRecorder {
                 try await Task.sleep(for: delay)
             }
 
-            guard let device = AVCaptureDevice.default(for: .audio) else {
+            guard let device = Self.preferredMicrophone(deviceID: deviceID) else {
                 Self.logger.error(
-                    "No default microphone on attempt \(attempt + 1, privacy: .public)"
+                    "No microphone on attempt \(attempt + 1, privacy: .public)"
                 )
                 continue
             }
@@ -245,6 +237,94 @@ final class AudioRecorder {
         }
 
         throw AudioRecorderError.noInput
+    }
+
+    private func startSystemAudioCapture(
+        session: RecordingSession,
+        format: AVAudioFormat
+    ) async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: false
+        )
+        let mainDisplayID = CGMainDisplayID()
+        guard
+            let display = content.displays.first(where: { $0.displayID == mainDisplayID })
+                ?? content.displays.first
+        else {
+            throw AudioRecorderError.recordingFailed("No display is available for system audio capture.")
+        }
+
+        let currentApp = Bundle.main.bundleIdentifier
+        let excludedApps = content.applications.filter { $0.bundleIdentifier == currentApp }
+        let filter = SCContentFilter(
+            display: display,
+            excludingApplications: excludedApps,
+            exceptingWindows: []
+        )
+
+        let configuration = SCStreamConfiguration()
+        configuration.capturesAudio = true
+        configuration.excludesCurrentProcessAudio = true
+        configuration.sampleRate = Int(format.sampleRate)
+        configuration.channelCount = Int(format.channelCount)
+
+        // Reco consumes only the audio output. Keep the unused video side of
+        // the stream as inexpensive as possible.
+        configuration.width = 2
+        configuration.height = 2
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+
+        let output = SystemAudioStreamOutput(session: session)
+        let delegate = SystemAudioStreamDelegate(session: session)
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: delegate)
+        streamOutput = output
+        streamDelegate = delegate
+        self.stream = stream
+
+        try stream.addStreamOutput(
+            output,
+            type: .audio,
+            sampleHandlerQueue: .global(qos: .userInteractive)
+        )
+        try await stream.startCapture()
+    }
+
+    /// An explicit choice wins while it remains connected. Automatic mode and
+    /// disconnected selections prefer the built-in microphone so Bluetooth
+    /// playback stays in A2DP, then fall back to the system default on Macs
+    /// without a built-in input.
+    private static func preferredMicrophone(deviceID: String?) -> AVCaptureDevice? {
+        let devices = microphoneDevices()
+        if let deviceID,
+            let requested = devices.first(where: { $0.uniqueID == deviceID })
+        {
+            return requested
+        }
+        if let builtIn = devices.first(where: { isBuiltIn($0) }) {
+            return builtIn
+        }
+
+        return AVCaptureDevice.default(for: .audio)
+    }
+
+    private static func microphoneDevices() -> [AVCaptureDevice] {
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone],
+            mediaType: .audio,
+            position: .unspecified
+        )
+        return discoverySession.devices.sorted { first, second in
+            if isBuiltIn(first) != isBuiltIn(second) {
+                return isBuiltIn(first)
+            }
+            return first.localizedName.localizedStandardCompare(second.localizedName)
+                == .orderedAscending
+        }
+    }
+
+    private static func isBuiltIn(_ device: AVCaptureDevice) -> Bool {
+        UInt32(bitPattern: device.transportType) == kAudioDeviceTransportTypeBuiltIn
     }
 
     private func stopMicrophoneCapture() async {

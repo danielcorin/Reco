@@ -15,12 +15,29 @@ final class RecordingOverlayController {
 
     func show(latched: Bool) {
         model.latched = latched
+        model.isTranscribing = false
+        show(width: latched ? 162 : 136)
+    }
+
+    func showTranscribing() {
+        model.isTranscribing = true
+        model.level = 0
+        show(width: 150)
+    }
+
+    private func show(width: CGFloat) {
+        let wasVisible = isVisible
         isVisible = true
         hideToken += 1
 
         let panel = ensurePanel()
-        panel.setContentSize(NSSize(width: latched ? 162 : 136, height: 38))
-        position(panel)
+        let previousCenter = panel.frame.midX
+        panel.setContentSize(NSSize(width: width, height: 38))
+        if wasVisible {
+            panel.setFrameOrigin(NSPoint(x: previousCenter - width / 2, y: panel.frame.minY))
+        } else {
+            position(panel)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             panel.animator().alphaValue = 1
@@ -48,6 +65,7 @@ final class RecordingOverlayController {
     }
 
     func updateLevel(_ level: Float) {
+        guard isVisible, !model.isTranscribing else { return }
         model.level = level
     }
 
@@ -85,6 +103,7 @@ final class RecordingOverlayController {
 @MainActor
 private final class RecordingOverlayModel: ObservableObject {
     @Published var latched = false
+    @Published var isTranscribing = false
     @Published var level: Float = 0
 }
 
@@ -93,9 +112,16 @@ private struct RecordingPillView: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            LiveWaveform(level: model.level)
+            if model.isTranscribing {
+                ProgressView()
+                    .controlSize(.small)
+                    .colorScheme(.dark)
+                    .frame(width: 18, height: 18)
+            } else {
+                LiveWaveform(level: model.level)
+            }
 
-            Text(model.latched ? "Recording · locked" : "Recording")
+            Text(model.isTranscribing ? "Transcribing…" : (model.latched ? "Recording · locked" : "Recording"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
         }

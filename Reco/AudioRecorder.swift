@@ -3,6 +3,7 @@ import Accelerate
 import CoreAudio
 import CoreGraphics
 import CoreMedia
+import RecoCore
 @preconcurrency import ScreenCaptureKit
 import os
 
@@ -785,105 +786,5 @@ private nonisolated final class SystemAudioStreamDelegate: NSObject, SCStreamDel
         Logger(subsystem: "llc.wvlen.Reco", category: "SystemAudio")
             .error("System-audio stream stopped: \(error.localizedDescription)")
         session.recordError(error)
-    }
-}
-
-private nonisolated enum AudioMixdown {
-    static func mix(microphoneURL: URL, systemURL: URL, outputURL: URL) throws -> URL {
-        let microphone = try AVAudioFile(forReading: microphoneURL)
-        let system = try AVAudioFile(forReading: systemURL)
-        let format = microphone.processingFormat
-        guard format == system.processingFormat,
-            format.commonFormat == .pcmFormatFloat32,
-            !format.isInterleaved,
-            format.channelCount == 1
-        else {
-            throw AudioRecorderError.recordingFailed("Captured audio tracks have incompatible formats.")
-        }
-
-        let output = try AVAudioFile(forWriting: outputURL, settings: format.settings)
-        let totalFrames = max(microphone.length, system.length)
-        guard totalFrames > 0 else {
-            throw AudioRecorderError.recordingFailed("No audio was captured.")
-        }
-        let chunkSize: AVAudioFrameCount = 16_384
-        let limiterCeiling: Float = 0.95
-        let limiterReleaseSeconds = 0.15
-        let limiterReleaseCoefficient = Float(
-            1 - exp(-1 / (format.sampleRate * limiterReleaseSeconds))
-        )
-        var limiterGain: Float = 1
-        var framesWritten: AVAudioFramePosition = 0
-
-        while framesWritten < totalFrames {
-            let requested = AVAudioFrameCount(
-                min(AVAudioFramePosition(chunkSize), totalFrames - framesWritten)
-            )
-            guard let microphoneBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: requested),
-                let systemBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: requested),
-                let mixedBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: requested),
-                let microphoneSamples = microphoneBuffer.floatChannelData?[0],
-                let systemSamples = systemBuffer.floatChannelData?[0],
-                let mixedSamples = mixedBuffer.floatChannelData?[0]
-            else {
-                throw AudioRecorderError.recordingFailed("Couldn’t allocate mixdown buffers.")
-            }
-
-            microphoneBuffer.frameLength = 0
-            systemBuffer.frameLength = 0
-            try readAvailable(from: microphone, into: microphoneBuffer, upTo: requested)
-            try readAvailable(from: system, into: systemBuffer, upTo: requested)
-
-            let microphoneFrames = Int(microphoneBuffer.frameLength)
-            let systemFrames = Int(systemBuffer.frameLength)
-            let mixedFrames = max(microphoneFrames, systemFrames)
-            guard mixedFrames > 0 else { break }
-
-            for index in 0..<mixedFrames {
-                let microphoneSample = index < microphoneFrames ? microphoneSamples[index] : 0
-                let systemSample = index < systemFrames ? systemSamples[index] : 0
-                let combinedSample = microphoneSample + systemSample
-                let magnitude = abs(combinedSample)
-                let requiredGain =
-                    magnitude > limiterCeiling
-                    ? limiterCeiling / magnitude
-                    : 1
-
-                // Attenuate peaks immediately, then restore unity gain slowly
-                // to avoid clipping without audible pumping between sources.
-                if requiredGain < limiterGain {
-                    limiterGain = requiredGain
-                } else {
-                    limiterGain += (1 - limiterGain) * limiterReleaseCoefficient
-                }
-                mixedSamples[index] = combinedSample * limiterGain
-            }
-
-            mixedBuffer.frameLength = AVAudioFrameCount(mixedFrames)
-            try output.write(from: mixedBuffer)
-            framesWritten += AVAudioFramePosition(mixedFrames)
-        }
-
-        return outputURL
-    }
-
-    /// AVAudioFile throws a generic Objective-C error if it is asked to read
-    /// after EOF. The two capture tracks rarely end on the same frame, so read
-    /// only what remains and let mixdown treat the shorter track as silence.
-    private static func readAvailable(
-        from file: AVAudioFile,
-        into buffer: AVAudioPCMBuffer,
-        upTo requested: AVAudioFrameCount
-    ) throws {
-        let remaining = file.length - file.framePosition
-        guard remaining > 0 else {
-            buffer.frameLength = 0
-            return
-        }
-
-        let available = AVAudioFrameCount(
-            min(remaining, AVAudioFramePosition(requested))
-        )
-        try file.read(into: buffer, frameCount: available)
     }
 }

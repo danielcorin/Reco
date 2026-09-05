@@ -88,14 +88,10 @@ struct Hotkey: Codable, Equatable {
             48: "Tab", 51: "Delete", 53: "Esc", 123: "←", 124: "→", 125: "↓", 126: "↑",
         ]
         if let name = names[code] { return name }
-        if (122...135).contains(code) {
-            let functionKeys: [UInt16: String] = [
-                122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
-                98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
-            ]
-            return functionKeys[code] ?? "Key (code)"
+        if let key = configurationKeyNames[code], key.hasPrefix("f") {
+            return key.uppercased()
         }
-        return "Key (code)"
+        return "Key \(code)"
     }
 
     private static let configurationKeyCodes: [String: UInt16] = [
@@ -302,10 +298,13 @@ final class HotkeyMonitor {
 
     private func capture(_ event: NSEvent) {
         let candidate = Hotkey.from(event)
+        // Escape cancels. An unmodified key leaves capture active so the user
+        // can try again without having to reopen it.
+        guard candidate.keyCode == 53 || candidate.modifiers != 0 else { return }
         let shouldResumeHotkey = resumeHotkeyAfterCapture
         endCapture(resumeHotkey: false)
 
-        if candidate.keyCode == 53 || candidate.modifiers == 0 {
+        if candidate.keyCode == 53 {
             onCaptured?(nil)
         } else {
             logger.info("Captured \(candidate.displayName, privacy: .public)")

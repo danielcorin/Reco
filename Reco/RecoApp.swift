@@ -18,7 +18,8 @@ struct RecoApp: App {
             MenuContentView(
                 coordinator: model.coordinator,
                 showMenuBarIcon: showMenuBarIconBinding,
-                configurationError: model.configurationError
+                configurationError: model.configurationError,
+                onShowSetup: appDelegate.showSetup
             )
         } label: {
             MenuBarLabel(coordinator: model.coordinator)
@@ -46,14 +47,29 @@ private struct MenuBarLabel: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = RecoAppModel.shared
+    private var firstLaunchWindowController: FirstLaunchWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
+        if FirstLaunchWindowController.shouldPresentAutomatically {
+            showSetup()
+        }
+    }
+
+    func showSetup() {
+        let controller =
+            firstLaunchWindowController
+            ?? FirstLaunchWindowController(coordinator: model.coordinator)
+        firstLaunchWindowController = controller
+        controller.present()
     }
 
     // Launching Reco while it's already running restores a hidden menu bar icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         model.setShowMenuBarIcon(true)
+        if FirstLaunchWindowController.shouldPresentAutomatically {
+            showSetup()
+        }
         return false
     }
 }

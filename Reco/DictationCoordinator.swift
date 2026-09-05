@@ -3,10 +3,17 @@ import AppKit
 import ApplicationServices
 import Combine
 import CoreGraphics
+import RecoCore
 import SwiftUI
 
 @MainActor
 final class DictationCoordinator: ObservableObject {
+    enum ModelPreparationState: Equatable {
+        case loading
+        case ready
+        case failed(String)
+    }
+
     enum State: Equatable {
         case loadingModel
         case ready
@@ -54,6 +61,7 @@ final class DictationCoordinator: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var modelLoadProgress = 0.0
     @Published private(set) var modelLoadDetail = "Downloading model…"
+    @Published private(set) var modelPreparationState: ModelPreparationState = .loading
     @Published private(set) var availableMicrophones: [AudioInputDevice] = []
     @Published private(set) var microphoneSelection: MicrophoneSelection = .automatic
     @Published private(set) var capturesSystemAudio = true
@@ -63,8 +71,15 @@ final class DictationCoordinator: ObservableObject {
     private let hotkeyMonitor = HotkeyMonitor()
     private let overlay = RecordingOverlayController()
     private var releaseTask: Task<Void, Never>?
+    private var recordingStopTask: Task<URL, Error>?
+    private let transcriptionQueue = SerialTaskQueue()
+    private var pendingTranscriptions = 0
+    private var clipboardRestoreTask: Task<Void, Never>?
+    private var savedClipboardItems: [NSPasteboardItem]?
+    private var clipboardTranscriptChangeCount: Int?
     private var shortcutCaptureTask: Task<Void, Never>?
     private var permissionPollCancellable: AnyCancellable?
+    private var permissionPollingClients = 0
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var started = false
     private var isHotkeyHeld = false
@@ -115,6 +130,11 @@ final class DictationCoordinator: ObservableObject {
         microphoneSelection != .off
     }
 
+    var canChangeShortcut: Bool {
+        if case .recording = state { return false }
+        return !isStartingRecording
+    }
+
     var automaticMicrophoneName: String {
         let preferred =
             availableMicrophones.first(where: \.isBuiltIn)
@@ -159,26 +179,16 @@ final class DictationCoordinator: ObservableObject {
         startAudioDeviceObservation()
         refreshPermissions()
 
-        Task {
-            do {
-                try await transcriber.prepare { [weak self] progress, stage in
-                    guard let self else { return }
-                    modelLoadProgress = progress
-                    switch stage {
-                    case .downloading:
-                        modelLoadDetail = "Downloading model…"
-                    case .preparing:
-                        modelLoadDetail = "Preparing model…"
-                    }
-                }
-                if state == .loadingModel { state = .ready }
-            } catch {
-                fail("Couldn’t load Parakeet: \(error.localizedDescription)")
-            }
-        }
+        prepareModel()
+    }
+
+    func retryModelPreparation() {
+        guard case .failed = modelPreparationState else { return }
+        prepareModel()
     }
 
     func beginShortcutCapture() {
+        guard canChangeShortcut else { return }
         if isCapturingShortcut {
             cancelShortcutCapture()
             return
@@ -335,6 +345,7 @@ final class DictationCoordinator: ObservableObject {
     /// SwiftUI's task-modifier lifecycle, which is fragile for MenuBarExtra
     /// views that are repeatedly inserted and removed.
     func startPermissionPolling() {
+        permissionPollingClients += 1
         refreshAudioDevices()
         refreshPermissions()
         guard needsPermissions, permissionPollCancellable == nil else { return }
@@ -350,14 +361,48 @@ final class DictationCoordinator: ObservableObject {
             guard let self else { return }
             self.refreshPermissions()
             if !self.needsPermissions {
-                self.stopPermissionPolling()
+                self.permissionPollCancellable?.cancel()
+                self.permissionPollCancellable = nil
             }
         }
     }
 
     func stopPermissionPolling() {
+        permissionPollingClients = max(permissionPollingClients - 1, 0)
+        guard permissionPollingClients == 0 else { return }
         permissionPollCancellable?.cancel()
         permissionPollCancellable = nil
+    }
+
+    private func prepareModel() {
+        modelLoadProgress = 0
+        modelLoadDetail = "Downloading model…"
+        modelPreparationState = .loading
+        errorMessage = nil
+        state = .loadingModel
+
+        Task {
+            do {
+                try await transcriber.prepare { [weak self] progress, stage in
+                    guard let self else { return }
+                    modelLoadProgress = progress
+                    switch stage {
+                    case .downloading:
+                        modelLoadDetail = "Downloading model…"
+                    case .preparing:
+                        modelLoadDetail = "Preparing model…"
+                    }
+                }
+                modelLoadProgress = 1
+                modelPreparationState = .ready
+                if state == .loadingModel { state = .ready }
+            } catch {
+                let message = "Couldn’t load Parakeet: \(error.localizedDescription)"
+                modelPreparationState = .failed(message)
+                errorMessage = message
+                state = .failed
+            }
+        }
     }
 
     private func openPrivacySettings(anchor: String) {
@@ -395,10 +440,7 @@ final class DictationCoordinator: ObservableObject {
         shortcutCaptureTask?.cancel()
         shortcutCaptureTask = nil
         isCapturingShortcut = false
-        guard let shortcut else {
-            errorMessage = "Use at least one modifier key in the shortcut."
-            return
-        }
+        guard let shortcut else { return }
 
         let previousHotkey = hotkey
         guard hotkeyMonitor.updateHotkey(shortcut) else {
@@ -429,6 +471,7 @@ final class DictationCoordinator: ObservableObject {
 
         switch state {
         case .ready, .transcribing, .failed:
+            guard modelPreparationState == .ready else { return }
             overlay.show(latched: false)
             beginRecording()
         case .recording(let latched):
@@ -454,7 +497,6 @@ final class DictationCoordinator: ObservableObject {
             return
         }
         guard case .recording(let latched) = state, !latched else { return }
-        overlay.hide()
         scheduleRelease()
     }
 
@@ -479,12 +521,16 @@ final class DictationCoordinator: ObservableObject {
         }
         let shouldCaptureMicrophone = capturesMicrophone
         let shouldCaptureSystemAudio = capturesSystemAudio
+        let previousStop = recordingStopTask
         isStartingRecording = true
         releasedWhileStarting = false
         latchRequestedWhileStarting = false
         errorMessage = nil
         Task {
             do {
+                // A new press may arrive while the previous capture is shutting down.
+                // Keep its hold/double-tap state, then start once the recorder is free.
+                _ = try? await previousStop?.value
                 try await recorder.start(
                     microphoneDeviceID: microphoneDeviceID,
                     capturesMicrophone: shouldCaptureMicrophone,
@@ -498,7 +544,6 @@ final class DictationCoordinator: ObservableObject {
                 if shouldLatch {
                     overlay.show(latched: true)
                 } else if !isHotkeyHeld {
-                    overlay.hide()
                     scheduleRelease()
                 }
             } catch {
@@ -510,44 +555,57 @@ final class DictationCoordinator: ObservableObject {
 
     private func finishRecording() {
         guard case .recording = state else { return }
-        overlay.hide()
+        overlay.showTranscribing()
         state = .transcribing
 
-        Task {
-            let url: URL
-            do {
-                url = try await recorder.stop()
-            } catch {
-                fail(error.localizedDescription)
-                return
+        // Stop capture immediately; serialize inference and delivery so short clips
+        // cannot overtake earlier, longer dictations.
+        let stopTask = Task { try await recorder.stop() }
+        recordingStopTask = stopTask
+        pendingTranscriptions += 1
+        transcriptionQueue.enqueue { [self] in
+            let errorText = await transcribeRecording(stopTask)
+            pendingTranscriptions -= 1
+            if pendingTranscriptions == 0 {
+                recordingStopTask = nil
             }
+            transcriptionEnded(errorText: errorText)
+        }
+    }
 
-            defer { try? FileManager.default.removeItem(at: url) }
-            do {
-                let text = try await transcriber.transcribe(url)
-                guard !text.isEmpty else {
-                    transcriptionEnded(errorText: "No speech was detected.")
-                    return
-                }
-                deliverTranscription(text)
-                transcriptionEnded(errorText: nil)
-            } catch {
-                transcriptionEnded(errorText: "Transcription failed: \(error.localizedDescription)")
-            }
+    private func transcribeRecording(_ stopTask: Task<URL, Error>) async -> String? {
+        let url: URL
+        do {
+            url = try await stopTask.value
+        } catch {
+            return error.localizedDescription
+        }
+
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            let text = try await transcriber.transcribe(url)
+            guard !text.isEmpty else { return "No speech was detected." }
+            deliverTranscription(text)
+            return nil
+        } catch {
+            return "Transcription failed: \(error.localizedDescription)"
         }
     }
 
     private func transcriptionEnded(errorText: String?) {
-        guard let errorText else {
-            if state == .transcribing { state = .ready }
-            return
+        if let errorText {
+            errorMessage = errorText
         }
-
-        errorMessage = errorText
-        // Don't clobber a recording that started while this clip was transcribing.
+        // Completion must not overwrite the overlay or state of a newer recording.
         guard state == .transcribing, !isStartingRecording else { return }
-        state = .failed
-        scheduleFailedReset()
+        guard pendingTranscriptions == 0 else { return }
+        overlay.hide()
+        if errorText == nil {
+            state = .ready
+        } else {
+            state = .failed
+            scheduleFailedReset()
+        }
     }
 
     private func deliverTranscription(_ text: String) {
@@ -624,19 +682,26 @@ final class DictationCoordinator: ObservableObject {
 
     private func pasteRestoringClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
-        let saved = (pasteboard.pasteboardItems ?? []).map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    copy.setData(data, forType: type)
+        clipboardRestoreTask?.cancel()
+
+        // Consecutive clips can finish before the restore delay expires. Keep
+        // the original clipboard in that case, rather than saving our own text.
+        if pasteboard.changeCount != clipboardTranscriptChangeCount {
+            savedClipboardItems = (pasteboard.pasteboardItems ?? []).map { item in
+                let copy = NSPasteboardItem()
+                for type in item.types {
+                    if let data = item.data(forType: type) {
+                        copy.setData(data, forType: type)
+                    }
                 }
+                return copy
             }
-            return copy
         }
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         let transcriptChangeCount = pasteboard.changeCount
+        clipboardTranscriptChangeCount = transcriptChangeCount
 
         let source = CGEventSource(stateID: .combinedSessionState)
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
@@ -646,14 +711,20 @@ final class DictationCoordinator: ObservableObject {
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)
 
-        Task {
+        clipboardRestoreTask = Task { [weak self] in
             // Give the frontmost app time to read the pasteboard before
             // putting the previous contents back.
             try? await Task.sleep(for: Self.clipboardRestoreDelay)
+            guard !Task.isCancelled, let self else { return }
+            defer {
+                self.savedClipboardItems = nil
+                self.clipboardTranscriptChangeCount = nil
+                self.clipboardRestoreTask = nil
+            }
             // If the user copied something in the meantime, keep their copy.
             guard pasteboard.changeCount == transcriptChangeCount else { return }
             pasteboard.clearContents()
-            pasteboard.writeObjects(saved)
+            pasteboard.writeObjects(self.savedClipboardItems ?? [])
         }
     }
 
@@ -673,8 +744,13 @@ final class DictationCoordinator: ObservableObject {
     private func scheduleFailedReset() {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
-            guard let self, self.state == .failed else { return }
-            self.state = .ready
+            guard let self, self.state == .failed, !self.isStartingRecording else { return }
+            if self.pendingTranscriptions > 0 {
+                self.state = .transcribing
+                self.overlay.showTranscribing()
+            } else if self.modelPreparationState == .ready {
+                self.state = .ready
+            }
         }
     }
 }

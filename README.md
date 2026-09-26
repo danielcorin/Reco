@@ -48,6 +48,57 @@ xcodebuild \
 The app build embeds the `reco` companion CLI at
 `Reco.app/Contents/Helpers/reco`.
 
+## Recording from the CLI
+
+The companion CLI can record through the running Reco app, using the same
+selected microphone, system audio, local transcription model, and temporary-file
+cleanup as hotkey dictation:
+
+```sh
+reco record --duration 30 > transcript.txt  # capture for 30 seconds, then transcribe
+reco record                               # stop with Ctrl-C or from another process
+reco stop                                 # stop the active CLI recording
+reco record --duration 5 --json            # {"text": "..."}
+```
+
+`reco record` waits for transcription and prints the result to stdout. Progress
+goes to stderr. It does not paste text or change the clipboard. The duration is
+in seconds (fractions are supported), measured after capture starts.
+
+Without a duration, capture continues until `reco stop`, Ctrl-C, `SIGINT`,
+`SIGTERM`, or `SIGHUP`. Signals request a graceful stop: the command stays alive
+until it returns the transcript. For example, another process can stop it with
+`kill -TERM <record-command-pid>`. If the CLI disappears unexpectedly, the app
+also stops capture and cleans up its temporary audio.
+
+`reco stop` acknowledges the stop immediately; the original `reco record`
+process receives the transcript. It only stops CLI recordings. Only one capture
+can be active at a time; an overlapping request returns an error. The hotkey is
+ignored while CLI capture is active. Transcription keeps its existing queue, so
+a new recording can begin while an earlier clip is being transcribed.
+
+Open Reco and let its model finish loading before recording. The app needs
+permission for the selected audio sources; CLI transcription does not need
+Accessibility access. No speech, unavailable permissions, or other failures
+produce an error on stderr and exit status 1; invalid arguments exit with status 2.
+A successful transcript or stop acknowledgement exits with status 0.
+`reco stop --json` returns `{"stopping": true}`.
+
+## Transcribing an audio file from the CLI
+
+With Reco running and its model ready, transcribe an existing local audio file:
+
+```sh
+reco transcribe ./meeting.m4a > transcript.txt
+reco transcribe ./meeting.wav --json  # {"text": "..."}
+```
+
+The command uses the same on-device model and transcription queue as recording.
+It makes a temporary copy so Reco can read files from locations such as Downloads,
+deletes that copy when the command finishes, and leaves the original unchanged.
+It prints the transcript to stdout without pasting or changing the clipboard. A missing or unreadable file,
+unsupported audio, or no detected speech produces an error on stderr.
+
 ## Configuration and CLI
 
 See the [configuration guide](docs/Configuration.md) for the complete schema,
@@ -129,7 +180,11 @@ That command requires a clean branch synchronized with its upstream, creates a u
 
 Reco registers only the configured global shortcut through the macOS hotkey API; it does not monitor unrelated keyboard input. The app is not sandboxed because it synthesizes Command-V to insert transcribed text. macOS Accessibility consent provides the user control for that event posting.
 
-Microphone and system audio are captured only while the shortcut is active. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
+Microphone and system audio are captured only during a hotkey or CLI recording. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
+
+Recording commands communicate over a local Unix socket accessible only to the
+same macOS user. The app keeps responsibility for capture permissions, the
+visible recording overlay, and model execution.
 
 ## Model and dependency licenses
 

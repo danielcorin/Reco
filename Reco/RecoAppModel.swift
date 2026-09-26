@@ -17,6 +17,7 @@ final class RecoAppModel: ObservableObject {
     private var directoryWatcher: ConfigurationDirectoryWatcher?
     private var distributedObserver: NSObjectProtocol?
     private var reloadTask: Task<Void, Never>?
+    private var recordingServer: RecordingServer?
 
     private init() {
         let store = AppConfigurationStore()
@@ -46,6 +47,19 @@ final class RecoAppModel: ObservableObject {
     func start() {
         coordinator.start()
         startConfigurationObservation()
+        if recordingServer == nil {
+            let server = RecordingServer(
+                startRecording: { [coordinator] in try await coordinator.startCLIRecording() },
+                transcribeFile: { [coordinator] url in try await coordinator.transcribeCLIFile(url) },
+                finishRecording: { [coordinator] id in try await coordinator.finishCLIRecording(id) }
+            )
+            do {
+                try server.start()
+                recordingServer = server
+            } catch {
+                configurationError = "Couldn’t start recording commands: \(error.localizedDescription)"
+            }
+        }
     }
 
     func setShowMenuBarIcon(_ enabled: Bool) {

@@ -24,17 +24,24 @@ private struct Command {
     var action: String
     var arguments: [String]
     var json: Bool
+    var isRecordingCommand = false
 
     init(_ rawArguments: [String]) throws {
         json = rawArguments.contains("--json")
         let positional = rawArguments.filter { $0 != "--json" }
+        if let first = positional.first, ["record", "stop", "transcribe"].contains(first) {
+            isRecordingCommand = true
+            action = first
+            arguments = Array(positional.dropFirst())
+            return
+        }
         guard positional.first == "config" else {
             if positional.isEmpty || ["help", "--help", "-h"].contains(positional.first ?? "") {
                 action = "help"
                 arguments = []
                 return
             }
-            throw AppConfigurationError.invalidKey(positional.first ?? "")
+            throw UsageError("unknown command '\(positional.first ?? "")'")
         }
         action = positional.dropFirst().first ?? "help"
         arguments = Array(positional.dropFirst(2))
@@ -48,7 +55,7 @@ private func parseKey(_ value: String) throws -> AppConfigurationKey {
     return key
 }
 
-private func writeJSON<T: Encodable>(_ value: T) throws {
+func writeJSON<T: Encodable>(_ value: T) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     FileHandle.standardOutput.write(try encoder.encode(value))
@@ -73,6 +80,18 @@ private func printEntry(_ entry: AppConfigurationEntry, json: Bool) throws {
 }
 
 private func run(_ command: Command) throws {
+    if command.isRecordingCommand {
+        if command.arguments == ["--help"] || command.arguments == ["-h"] {
+            print(help)
+            return
+        }
+        if command.action == "transcribe" {
+            try runFileTranscriptionCommand(arguments: command.arguments, json: command.json)
+        } else {
+            try runRecordingCommand(command.action, arguments: command.arguments, json: command.json)
+        }
+        return
+    }
     let store = AppConfigurationStore()
 
     switch command.action {
@@ -151,7 +170,7 @@ private func run(_ command: Command) throws {
     }
 }
 
-private struct UsageError: LocalizedError {
+struct UsageError: LocalizedError {
     var message: String
 
     init(_ message: String) {
@@ -162,9 +181,12 @@ private struct UsageError: LocalizedError {
 }
 
 private let help = """
-    Reco configuration CLI
+    Reco CLI
 
     Usage:
+      reco record [--duration <seconds>] [--json]  Record and print the transcript
+      reco stop [--json]                         Stop the active CLI recording
+      reco transcribe <audio-file> [--json]      Transcribe an existing audio file
       reco config path [--json]                 Print the configuration file path
       reco config get <key> [--json]            Print one effective value
       reco config set <key> <value> [--json]    Persist an override
@@ -173,6 +195,14 @@ private let help = """
       reco config validate [path] [--json]      Validate TOML and configuration values
       reco config reload [--json]               Ask a running Reco to reload
       reco help                                  Show this help
+
+    Recording uses the running Reco app and its selected audio sources.
+    Without --duration, record until Ctrl-C, SIGINT, SIGTERM, SIGHUP, or reco stop.
+    The duration starts after capture begins. Progress goes to stderr; the final
+    transcript goes to stdout (or {"text": "..."} with --json), without pasting.
+    reco stop acknowledges the stop; the original record command returns the text.
+    transcribe reads a local audio file through the running Reco app and prints
+    its transcript without changing the file, clipboard, or focused app.
 
     Keys:
       hotkey                Global shortcut, for example control+e

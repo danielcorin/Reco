@@ -87,6 +87,7 @@ final class DictationCoordinator: ObservableObject {
     private var releasedWhileStarting = false
     private var latchRequestedWhileStarting = false
     private var isRequestingPermissions = false
+    private var cliRecordingID: UUID?
 
     private static let doubleTapWindow: Duration = .milliseconds(280)
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
@@ -457,6 +458,7 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func hotkeyPressed() {
+        guard cliRecordingID == nil else { return }
         isHotkeyHeld = true
 
         // Starting ScreenCaptureKit can take longer than a normal double-tap.
@@ -491,6 +493,7 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func hotkeyReleased() {
+        guard cliRecordingID == nil else { return }
         isHotkeyHeld = false
         if isStartingRecording {
             releasedWhileStarting = true
@@ -510,7 +513,72 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
-    private func beginRecording() {
+    func startCLIRecording() async throws -> UUID {
+        guard modelPreparationState == .ready else {
+            throw RecordingCommandError("The transcription model is not ready. Check Reco’s menu and try again.")
+        }
+        guard cliRecordingID == nil, !isStartingRecording, !isCapturingShortcut else {
+            throw RecordingCommandError("Reco is busy. Finish the current recording or shortcut capture first.")
+        }
+        if case .recording = state {
+            throw RecordingCommandError("A recording is already in progress.")
+        }
+        let id = UUID()
+        cliRecordingID = id
+        isHotkeyHeld = false
+        overlay.show(latched: true)
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                beginRecording(latched: true) { continuation.resume(with: $0) }
+            }
+            return id
+        } catch {
+            cliRecordingID = nil
+            throw error
+        }
+    }
+
+    func finishCLIRecording(_ id: UUID) async throws -> String {
+        guard cliRecordingID == id, case .recording = state else {
+            throw RecordingCommandError("That CLI recording is no longer active.")
+        }
+        cliRecordingID = nil
+        return try await withCheckedThrowingContinuation { continuation in
+            finishRecording { continuation.resume(with: $0) }
+        }
+    }
+
+    func transcribeCLIFile(_ url: URL) async throws -> String {
+        guard modelPreparationState == .ready else {
+            throw RecordingCommandError("The transcription model is not ready. Check Reco’s menu and try again.")
+        }
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey])
+        guard values?.isRegularFile == true, values?.isReadable == true else {
+            throw RecordingCommandError("Audio file is missing or unreadable: \(url.path)")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            transcriptionQueue.enqueue { [self] in
+                do {
+                    let text = try await transcriber.transcribe(url)
+                    guard !text.isEmpty else {
+                        continuation.resume(throwing: RecordingCommandError("No speech was detected."))
+                        return
+                    }
+                    continuation.resume(returning: text)
+                } catch {
+                    continuation.resume(
+                        throwing: RecordingCommandError(
+                            "Transcription failed: \(error.localizedDescription)"
+                        ))
+                }
+            }
+        }
+    }
+
+    private func beginRecording(
+        latched: Bool = false,
+        completion: ((Result<Void, Error>) -> Void)? = nil
+    ) {
         guard !isStartingRecording else { return }
         let microphoneDeviceID: String?
         switch microphoneSelection {
@@ -536,7 +604,7 @@ final class DictationCoordinator: ObservableObject {
                     capturesMicrophone: shouldCaptureMicrophone,
                     capturesSystemAudio: shouldCaptureSystemAudio
                 )
-                let shouldLatch = latchRequestedWhileStarting
+                let shouldLatch = latched || latchRequestedWhileStarting
                 isStartingRecording = false
                 releasedWhileStarting = false
                 latchRequestedWhileStarting = false
@@ -546,14 +614,16 @@ final class DictationCoordinator: ObservableObject {
                 } else if !isHotkeyHeld {
                     scheduleRelease()
                 }
+                completion?(.success(()))
             } catch {
                 isStartingRecording = false
                 fail(error.localizedDescription)
+                completion?(.failure(error))
             }
         }
     }
 
-    private func finishRecording() {
+    private func finishRecording(completion: ((Result<String, Error>) -> Void)? = nil) {
         guard case .recording = state else { return }
         overlay.showTranscribing()
         state = .transcribing
@@ -564,31 +634,41 @@ final class DictationCoordinator: ObservableObject {
         recordingStopTask = stopTask
         pendingTranscriptions += 1
         transcriptionQueue.enqueue { [self] in
-            let errorText = await transcribeRecording(stopTask)
+            let result = await transcribeRecording(stopTask, deliverToApp: completion == nil)
+            let errorText: String?
+            switch result {
+            case .success: errorText = nil
+            case .failure(let error): errorText = error.localizedDescription
+            }
             pendingTranscriptions -= 1
             if pendingTranscriptions == 0 {
                 recordingStopTask = nil
             }
             transcriptionEnded(errorText: errorText)
+            completion?(result)
         }
     }
 
-    private func transcribeRecording(_ stopTask: Task<URL, Error>) async -> String? {
+    private func transcribeRecording(
+        _ stopTask: Task<URL, Error>, deliverToApp: Bool
+    ) async -> Result<String, Error> {
         let url: URL
         do {
             url = try await stopTask.value
         } catch {
-            return error.localizedDescription
+            return .failure(error)
         }
 
         defer { try? FileManager.default.removeItem(at: url) }
         do {
             let text = try await transcriber.transcribe(url)
-            guard !text.isEmpty else { return "No speech was detected." }
-            deliverTranscription(text)
-            return nil
+            guard !text.isEmpty else {
+                return .failure(RecordingCommandError("No speech was detected."))
+            }
+            if deliverToApp { deliverTranscription(text) }
+            return .success(text)
         } catch {
-            return "Transcription failed: \(error.localizedDescription)"
+            return .failure(RecordingCommandError("Transcription failed: \(error.localizedDescription)"))
         }
     }
 

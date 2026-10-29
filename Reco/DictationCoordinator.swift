@@ -93,6 +93,13 @@ final class DictationCoordinator: ObservableObject {
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
     private static let missingPasteAccessMessage =
         "Text was copied, but Accessibility access is required to paste it automatically."
+    // Ghostty-based terminals accept AXSelectedText, but their AXValue is the
+    // rendered screen, which updates asynchronously. The readback check then
+    // misses the inserted text and the paste fallback inserts it a second time.
+    private static let pasteOnlyBundleIDs: Set<String> = [
+        "com.cmuxterm.app",
+        "com.mitchellh.ghostty",
+    ]
 
     var onHotkeyChanged: ((Hotkey) throws -> Void)?
 
@@ -698,7 +705,9 @@ final class DictationCoordinator: ObservableObject {
             return
         }
 
-        if let field = focusedUIElement(), insertViaAccessibility(text, into: field) {
+        if let field = focusedUIElement(), !Self.isPasteOnly(field),
+            insertViaAccessibility(text, into: field)
+        {
             return
         }
 
@@ -732,9 +741,17 @@ final class DictationCoordinator: ObservableObject {
         return (focusedRef as! AXUIElement)
     }
 
+    private static func isPasteOnly(_ field: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(field, &pid) == .success,
+            let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        else { return false }
+        return pasteOnlyBundleIDs.contains(bundleID)
+    }
+
     // Inserts without touching the clipboard. Only classic AppKit text views
-    // honor a settable AXSelectedText; Electron apps, terminals, and SwiftUI
-    // fields do not, and those fall through to the paste path.
+    // honor a settable AXSelectedText; Electron apps, most terminals, and
+    // SwiftUI fields do not, and those fall through to the paste path.
     private func insertViaAccessibility(_ text: String, into field: AXUIElement) -> Bool {
         var settable = DarwinBoolean(false)
         guard

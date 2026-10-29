@@ -2,4 +2,10 @@
 DEVELOPMENT_TEAM =
 PRODUCT_BUNDLE_IDENTIFIER = org.example.Reco
 
+// Never instrument shipped binaries: an instrumented app or bundled CLI writes
+// default.profraw into whatever directory it runs from. Opt in only with
+// `xcodebuild -enableCodeCoverage YES test` in a separate derived-data dir.
+ENABLE_CODE_COVERAGE = NO
+CLANG_COVERAGE_MAPPING = NO
+
 #include? "Local.xcconfig"

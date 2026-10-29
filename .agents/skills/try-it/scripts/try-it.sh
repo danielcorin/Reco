@@ -69,10 +69,12 @@ xcb -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" -configuration Release \
     -derivedDataPath build build \
     CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$TEAM_ID" \
     "CODE_SIGN_IDENTITY=Developer ID Application" \
-    "OTHER_CODE_SIGN_FLAGS=--timestamp" >"$build_log" 2>&1 \
+    "OTHER_CODE_SIGN_FLAGS=--timestamp" \
+    ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO >"$build_log" 2>&1 \
     || { tail -40 "$build_log" >&2; fail "build failed; installed copy left untouched (full log: $build_log)"; }
 
 [[ -d "$BUILT_APP" ]] || fail "no app produced at $BUILT_APP"
+"$REPO_ROOT/scripts/verify-no-coverage.sh" "$BUILT_APP"
 [[ -x "$BUILT_APP/$CLI_PATH" ]] || fail "no companion CLI produced at $BUILT_APP/$CLI_PATH"
 signing_info="$(codesign -dvvv "$BUILT_APP" 2>&1)"
 grep -q "^Authority=Developer ID Application" <<<"$signing_info" \

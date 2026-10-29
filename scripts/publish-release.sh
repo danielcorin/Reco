@@ -670,7 +670,7 @@ if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
     xcodebuild "${XCODE_CONTEXT[@]}" \
         -destination 'generic/platform=macOS' \
         -archivePath "$ARCHIVE_PATH" \
-        archive
+        ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO archive
 
     echo "Exporting the Developer ID-signed app..."
     xcodebuild \
@@ -685,6 +685,7 @@ if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
 fi
 
 verify_app
+"$SCRIPT_DIR/verify-no-coverage.sh" "$APP_PATH"
 
 mkdir -p "$OUT_DIR"
 ZIP_NAME="$PRODUCT_NAME-$VERSION-macOS.zip"

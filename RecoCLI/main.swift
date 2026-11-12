@@ -24,13 +24,13 @@ private struct Command {
     var action: String
     var arguments: [String]
     var json: Bool
-    var isRecordingCommand = false
+    var isTopLevelCommand = false
 
     init(_ rawArguments: [String]) throws {
         json = rawArguments.contains("--json")
         let positional = rawArguments.filter { $0 != "--json" }
-        if let first = positional.first, ["record", "stop", "transcribe"].contains(first) {
-            isRecordingCommand = true
+        if let first = positional.first, ["record", "stop", "transcribe", "stats"].contains(first) {
+            isTopLevelCommand = true
             action = first
             arguments = Array(positional.dropFirst())
             return
@@ -80,13 +80,15 @@ private func printEntry(_ entry: AppConfigurationEntry, json: Bool) throws {
 }
 
 private func run(_ command: Command) throws {
-    if command.isRecordingCommand {
+    if command.isTopLevelCommand {
         if command.arguments == ["--help"] || command.arguments == ["-h"] {
             print(help)
             return
         }
         if command.action == "transcribe" {
             try runFileTranscriptionCommand(arguments: command.arguments, json: command.json)
+        } else if command.action == "stats" {
+            try runStatsCommand(arguments: command.arguments, json: command.json)
         } else {
             try runRecordingCommand(command.action, arguments: command.arguments, json: command.json)
         }
@@ -187,6 +189,7 @@ private let help = """
       reco record [--duration <seconds>] [--json]  Record and print the transcript
       reco stop [--json]                         Stop the active CLI recording
       reco transcribe <audio-file> [--json]      Transcribe an existing audio file
+      reco stats [--days <n>] [--json]          Print usage totals and daily counts
       reco config path [--json]                 Print the configuration file path
       reco config get <key> [--json]            Print one effective value
       reco config set <key> <value> [--json]    Persist an override
@@ -203,6 +206,11 @@ private let help = """
     reco stop acknowledges the stop; the original record command returns the text.
     transcribe reads a local audio file through the running Reco app and prints
     its transcript without changing the file, clipboard, or focused app.
+
+    stats prints lifetime transcription and word totals, then one row per day
+    for the last 30 days (--days 0 prints totals only). It reads
+    $XDG_DATA_HOME/reco/stats.json, falling back to ~/.local/share/reco/stats.json,
+    and works while Reco is not running. Only counts are stored, never text.
 
     Keys:
       hotkey                Global shortcut, for example control+e

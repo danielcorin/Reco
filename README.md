@@ -99,6 +99,24 @@ deletes that copy when the command finishes, and leaves the original unchanged.
 It prints the transcript to stdout without pasting or changing the clipboard. A missing or unreadable file,
 unsupported audio, or no detected speech produces an error on stderr.
 
+## Usage stats
+
+Reco counts each successful transcription (hotkey, `reco record`, and
+`reco transcribe`) and the words it produced. The **Stats** section of Reco's
+menu shows lifetime totals and a bar chart of words or transcriptions per day
+over the last 30 days; hover a bar to see that day's count. The same numbers are
+available from the CLI, whether or not Reco is running:
+
+```sh
+reco stats              # totals, then one row per day for the last 30 days
+reco stats --days 7     # a shorter daily range; --days 0 prints totals only
+reco stats --json       # {"transcriptions", "words", "since", "days": [...]}
+```
+
+Stats live in `$XDG_DATA_HOME/reco/stats.json` (`~/.local/share/reco/stats.json`
+when `XDG_DATA_HOME` is unset or relative) as per-day counts in local time.
+Transcript text is never stored. Delete the file to reset the counts.
+
 ## Configuration and CLI
 
 See the [configuration guide](docs/Configuration.md) for the complete schema,
@@ -180,7 +198,7 @@ That command requires a clean branch synchronized with its upstream, creates a u
 
 Reco registers only the configured global shortcut through the macOS hotkey API; it does not monitor unrelated keyboard input. The app is not sandboxed because it synthesizes Command-V to insert transcribed text. macOS Accessibility consent provides the user control for that event posting.
 
-Microphone and system audio are captured only during a hotkey or CLI recording. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. Network access is required on first use to download the model artifacts from Hugging Face.
+Microphone and system audio are captured only during a hotkey or CLI recording. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. It keeps per-day transcription and word counts for [usage stats](#usage-stats), never the transcribed text. Network access is required on first use to download the model artifacts from Hugging Face.
 
 Recording commands communicate over a local Unix socket accessible only to the
 same macOS user. The app keeps responsibility for capture permissions, the

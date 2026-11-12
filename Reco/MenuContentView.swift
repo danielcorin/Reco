@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuContentView: View {
     @ObservedObject var coordinator: DictationCoordinator
+    @ObservedObject var usage: UsageTracker
     @Binding var showMenuBarIcon: Bool
     let configurationError: String?
     let onShowSetup: () -> Void
@@ -178,6 +179,12 @@ struct MenuContentView: View {
 
             Divider()
 
+            menuSection("Stats") {
+                UsageStatsSection(stats: usage.stats)
+            }
+
+            Divider()
+
             menuSection("App") {
                 HStack {
                     Text("Start at login")
@@ -271,6 +278,7 @@ struct MenuContentView: View {
         .frame(width: 290)
         .onAppear {
             coordinator.startPermissionPolling()
+            usage.refresh()
             let currentLaunchAtLogin = SMAppService.mainApp.status == .enabled
             if launchAtLogin != currentLaunchAtLogin {
                 launchAtLogin = currentLaunchAtLogin

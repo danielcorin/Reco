@@ -17,6 +17,7 @@ struct RecoApp: App {
         MenuBarExtra(isInserted: showMenuBarIconBinding) {
             MenuContentView(
                 coordinator: model.coordinator,
+                usage: model.usage,
                 showMenuBarIcon: showMenuBarIconBinding,
                 configurationError: model.configurationError,
                 onShowSetup: appDelegate.showSetup

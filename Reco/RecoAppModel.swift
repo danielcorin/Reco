@@ -12,6 +12,7 @@ final class RecoAppModel: ObservableObject {
     @Published private(set) var configurationError: String?
 
     let coordinator: DictationCoordinator
+    let usage = UsageTracker()
     let configurationStore: AppConfigurationStore
 
     private var directoryWatcher: ConfigurationDirectoryWatcher?
@@ -42,6 +43,7 @@ final class RecoAppModel: ObservableObject {
             guard let self else { return }
             try self.persist(hotkey: hotkey)
         }
+        coordinator.onTranscribed = { [usage] text in usage.record(text) }
     }
 
     func start() {

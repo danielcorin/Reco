@@ -102,6 +102,8 @@ final class DictationCoordinator: ObservableObject {
     ]
 
     var onHotkeyChanged: ((Hotkey) throws -> Void)?
+    /// Called with the text of every successful transcription, from any source.
+    var onTranscribed: ((String) -> Void)?
 
     init(initialHotkey: Hotkey) {
         hotkey = initialHotkey
@@ -571,6 +573,7 @@ final class DictationCoordinator: ObservableObject {
                         continuation.resume(throwing: RecordingCommandError("No speech was detected."))
                         return
                     }
+                    onTranscribed?(text)
                     continuation.resume(returning: text)
                 } catch {
                     continuation.resume(
@@ -672,6 +675,7 @@ final class DictationCoordinator: ObservableObject {
             guard !text.isEmpty else {
                 return .failure(RecordingCommandError("No speech was detected."))
             }
+            onTranscribed?(text)
             if deliverToApp { deliverTranscription(text) }
             return .success(text)
         } catch {

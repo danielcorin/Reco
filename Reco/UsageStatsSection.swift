@@ -3,7 +3,8 @@ import RecoCore
 import SwiftUI
 
 /// Lifetime totals plus a per-day bar chart for one metric at a time. The two
-/// metrics have different scales, so they never share an axis.
+/// metrics have different scales, so they never share an axis; the totals
+/// double as the control that picks which one the chart shows.
 struct UsageStatsSection: View {
     enum Metric: String, CaseIterable, Identifiable {
         case words = "Words"
@@ -41,34 +42,28 @@ struct UsageStatsSection: View {
     var body: some View {
         if stats.transcriptions == 0 {
             Text("Totals and a daily chart appear after your first transcription.")
-                .font(.system(size: 11))
+                .font(RecoStyle.Font.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            totalRow("Transcriptions", stats.transcriptions)
-            totalRow("Words transcribed", stats.words)
+            HStack(spacing: 8) {
+                StatTile(
+                    value: stats.words,
+                    label: Metric.words.label(for: stats.words),
+                    isSelected: metric == .words
+                ) { metric = .words }
 
-            Picker("Chart", selection: $metric) {
-                ForEach(Metric.allCases) { Text($0.rawValue).tag($0) }
+                StatTile(
+                    value: stats.transcriptions,
+                    label: Metric.transcriptions.label(for: stats.transcriptions),
+                    isSelected: metric == .transcriptions
+                ) { metric = .transcriptions }
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .controlSize(.small)
 
             VStack(alignment: .leading, spacing: 6) {
                 caption
                 chart
             }
-        }
-    }
-
-    private func totalRow(_ title: String, _ value: Int) -> some View {
-        HStack {
-            Text(title)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value, format: .number)
-                .monospacedDigit()
         }
     }
 
@@ -97,7 +92,7 @@ struct UsageStatsSection: View {
                 Text("Last \(Self.dayCount) days")
             }
         }
-        .font(.system(size: 11))
+        .font(RecoStyle.Font.caption)
         .foregroundStyle(.secondary)
         .monospacedDigit()
     }
@@ -116,7 +111,7 @@ struct UsageStatsSection: View {
         .chartXAxis {
             AxisMarks(values: .stride(by: .day, count: 7)) { _ in
                 AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                    .font(.system(size: 9))
+                    .font(RecoStyle.Font.axis)
             }
         }
         .chartYAxis {
@@ -124,10 +119,50 @@ struct UsageStatsSection: View {
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(.quaternary)
                 AxisValueLabel()
-                    .font(.system(size: 9))
+                    .font(RecoStyle.Font.axis)
             }
         }
         .frame(height: 72)
         .accessibilityLabel("\(metric.rawValue) per day, last \(Self.dayCount) days")
+    }
+}
+
+/// A lifetime total that also selects the chart's metric.
+private struct StatTile: View {
+    let value: Int
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value, format: .number)
+                    .font(RecoStyle.Font.statValue)
+                    .monospacedDigit()
+                Text(label)
+                    .font(RecoStyle.Font.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(background, in: RoundedRectangle(cornerRadius: RecoStyle.cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: RecoStyle.cornerRadius)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.45) : .clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: RecoStyle.cornerRadius))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint("Shows \(label) per day in the chart")
+    }
+
+    private var background: Color {
+        if isSelected { return Color.accentColor.opacity(0.14) }
+        return Color.secondary.opacity(isHovered ? 0.12 : 0.07)
     }
 }

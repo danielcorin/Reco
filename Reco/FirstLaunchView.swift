@@ -42,17 +42,17 @@ struct FirstLaunchView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("Welcome to Reco")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(RecoStyle.Font.windowTitle)
 
                 Text("Private, on-device transcription from your menu bar")
-                    .font(.system(size: 13))
+                    .font(RecoStyle.Font.body)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
             Text(step == .permissions ? "1 of 2" : "2 of 2")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(RecoStyle.Font.badge)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -66,10 +66,10 @@ struct FirstLaunchView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Allow access")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(RecoStyle.Font.stepTitle)
 
                 Text("Reco only uses these permissions while you dictate, and your audio stays on this Mac.")
-                    .font(.system(size: 13))
+                    .font(RecoStyle.Font.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -95,15 +95,13 @@ struct FirstLaunchView: View {
 
             HStack {
                 Text(permissionsComplete ? "All permissions are ready." : "Grant each permission to continue.")
-                    .font(.system(size: 12))
+                    .font(RecoStyle.Font.detail)
                     .foregroundStyle(permissionsComplete ? Color.green : Color.secondary)
 
                 Spacer()
 
                 Button("Continue") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        step = .model
-                    }
+                    step = .model
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -121,10 +119,10 @@ struct FirstLaunchView: View {
 
             VStack(spacing: 6) {
                 Text(modelTitle)
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(RecoStyle.Font.stepTitle)
 
                 Text(modelDescription)
-                    .font(.system(size: 13))
+                    .font(RecoStyle.Font.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 390)
@@ -145,23 +143,21 @@ struct FirstLaunchView: View {
                             format: .percent.precision(.fractionLength(0))
                         )
                     }
-                    .font(.system(size: 11))
+                    .font(RecoStyle.Font.caption)
                     .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: 390)
             }
 
             Text("NVIDIA Parakeet v3 · Downloaded once · Runs entirely on-device")
-                .font(.system(size: 11))
+                .font(RecoStyle.Font.caption)
                 .foregroundStyle(.tertiary)
 
             Spacer()
 
             HStack {
                 Button("Back") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        step = .permissions
-                    }
+                    step = .permissions
                 }
                 .controlSize(.large)
 
@@ -174,7 +170,7 @@ struct FirstLaunchView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                 } else {
-                    Button("Start using Reco") {
+                    Button("Start Using Reco") {
                         onFinish()
                     }
                     .buttonStyle(.borderedProminent)
@@ -201,9 +197,9 @@ struct FirstLaunchView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(permission.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(RecoStyle.Font.bodyEmphasized)
                 Text(permission.purpose)
-                    .font(.system(size: 11))
+                    .font(RecoStyle.Font.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -211,7 +207,7 @@ struct FirstLaunchView: View {
 
             if granted {
                 Label("Allowed", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(RecoStyle.Font.captionEmphasized)
                     .foregroundStyle(.green)
             } else {
                 Button("Allow…") {

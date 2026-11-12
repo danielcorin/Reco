@@ -8,135 +8,267 @@ struct MenuContentView: View {
     let configurationError: String?
     let onShowSetup: () -> Void
     @State private var launchAtLogin = false
-    @State private var cliInstallResult: String?
+    @State private var cliInstalled = CLIInstaller.isInstalled
+    @State private var copiedLastTranscription = false
+    @State private var copyResetTask: Task<Void, Never>?
+
+    private static let idleHint = "Hold to dictate. Double-tap to lock, press again to stop."
+    private static let captureHint = "Press a key with Control, Option, Shift, or Command. Esc cancels."
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 9) {
+        VStack(alignment: .leading, spacing: RecoStyle.sectionSpacing) {
+            header
+
+            if hasAttentionItems {
+                attentionCallouts
+            }
+
+            if let lastTranscription = coordinator.lastTranscription {
+                Divider()
+                lastTranscriptionSection(lastTranscription)
+            }
+
+            Divider()
+            inputSection
+
+            Divider()
+            VStack(alignment: .leading, spacing: RecoStyle.rowSpacing) {
+                MenuSectionHeader(title: "Usage")
+                UsageStatsSection(stats: usage.stats)
+            }
+
+            Divider()
+            footer
+        }
+        .font(RecoStyle.Font.body)
+        .padding(RecoStyle.menuPadding)
+        .frame(width: RecoStyle.menuWidth)
+        .background {
+            // ⌘Q quits from the open panel, like any other Mac app.
+            Button("Quit Reco") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q")
+                .hidden()
+        }
+        .onAppear {
+            coordinator.startPermissionPolling()
+            usage.refresh()
+            let currentLaunchAtLogin = SMAppService.mainApp.status == .enabled
+            if launchAtLogin != currentLaunchAtLogin {
+                launchAtLogin = currentLaunchAtLogin
+            }
+            let installed = CLIInstaller.isInstalled
+            if cliInstalled != installed {
+                cliInstalled = installed
+            }
+        }
+        .onDisappear {
+            coordinator.stopPermissionPolling()
+            coordinator.cancelShortcutCapture()
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(coordinator.statusColor)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 7, height: 7)
 
                 Text(coordinator.statusText)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(RecoStyle.Font.title)
 
                 Spacer(minLength: 12)
+
+                shortcutButton
+            }
+
+            // Both hints occupy the same space, so starting or cancelling a
+            // shortcut change never moves the rest of the menu.
+            ZStack(alignment: .topLeading) {
+                hintText(Self.idleHint)
+                    .opacity(coordinator.isCapturingShortcut ? 0 : 1)
+                hintText(Self.captureHint)
+                    .opacity(coordinator.isCapturingShortcut ? 1 : 0)
             }
 
             if coordinator.state == .loadingModel {
                 VStack(alignment: .leading, spacing: 5) {
                     ProgressView(value: coordinator.modelLoadProgress, total: 1)
                         .progressViewStyle(.linear)
-                        .tint(.orange)
 
                     HStack {
                         Text(coordinator.modelLoadDetail)
                         Spacer()
-                        Text(coordinator.modelLoadProgress, format: .percent.precision(.fractionLength(0)))
+                        Text(
+                            coordinator.modelLoadProgress,
+                            format: .percent.precision(.fractionLength(0))
+                        )
+                        .monospacedDigit()
                     }
-                    .font(.system(size: 10))
+                    .font(RecoStyle.Font.footnote)
                     .foregroundStyle(.secondary)
                 }
+                .padding(.top, 4)
             }
+        }
+    }
 
-            if let error = coordinator.errorMessage {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+    private var shortcutButton: some View {
+        Button {
+            coordinator.beginShortcutCapture()
+        } label: {
+            // Reserve the wider of the two labels so the button keeps its size.
+            ZStack {
+                Text("Press Keys…").hidden()
+                Text(coordinator.hotkey.displayName).hidden()
+                Text(coordinator.isCapturingShortcut ? "Press Keys…" : coordinator.hotkey.displayName)
             }
+            .font(RecoStyle.Font.shortcut)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!coordinator.canChangeShortcut)
+        .help("Click to choose a new shortcut")
+    }
 
-            if case .failed = coordinator.modelPreparationState {
-                Button("Retry Model Download") {
-                    coordinator.retryModelPreparation()
+    private func hintText(_ text: String) -> some View {
+        Text(text)
+            .font(RecoStyle.Font.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: Needs attention
+
+    private var missingPermissions: [DictationCoordinator.Permission] {
+        guard coordinator.needsPermissions else { return [] }
+        return coordinator.requiredPermissions.filter { !coordinator.isGranted($0) }
+    }
+
+    private var modelFailed: Bool {
+        if case .failed = coordinator.modelPreparationState { return true }
+        return false
+    }
+
+    private var hasAttentionItems: Bool {
+        !missingPermissions.isEmpty
+            || coordinator.visibleErrorMessage != nil
+            || configurationError != nil
+    }
+
+    private var attentionCallouts: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !missingPermissions.isEmpty {
+                AttentionCallout(
+                    symbol: "lock.shield",
+                    title: "Allow access to dictate"
+                ) {
+                    ForEach(missingPermissions) { permission in
+                        permissionRow(permission)
+                    }
                 }
-                .controlSize(.small)
+            }
+
+            if let error = coordinator.visibleErrorMessage {
+                AttentionCallout(symbol: "exclamationmark.triangle.fill", title: error) {
+                    if modelFailed {
+                        HStack {
+                            Spacer()
+                            Button("Retry Download") {
+                                coordinator.retryModelPreparation()
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
             }
 
             if let configurationError {
-                Text(configurationError)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                AttentionCallout(symbol: "exclamationmark.triangle.fill", title: configurationError) {
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    private func permissionRow(_ permission: DictationCoordinator.Permission) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(permission.displayName)
+                    .font(RecoStyle.Font.detailEmphasized)
+                Text(permission.purpose)
+                    .font(RecoStyle.Font.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Divider()
+            Spacer(minLength: 8)
 
-            menuSection("Recording") {
-                HStack {
-                    Text("Shortcut")
-                        .foregroundStyle(.secondary)
+            Button("Allow…") {
+                coordinator.requestPermission(permission)
+            }
+            .controlSize(.small)
+        }
+    }
 
-                    Spacer()
+    // MARK: Last transcription
 
-                    Button {
-                        coordinator.beginShortcutCapture()
-                    } label: {
-                        Text(
-                            coordinator.isCapturingShortcut
-                                ? "Press shortcut…" : coordinator.hotkey.displayName
+    private func lastTranscriptionSection(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                MenuSectionHeader(title: "Last Transcription")
+                Spacer()
+                Button {
+                    copyLastTranscription()
+                } label: {
+                    // Reserve room for "Copied" so the swap doesn't shift anything.
+                    ZStack(alignment: .trailing) {
+                        Label("Copied", systemImage: "checkmark").hidden()
+                        Label(
+                            copiedLastTranscription ? "Copied" : "Copy",
+                            systemImage: copiedLastTranscription ? "checkmark" : "doc.on.doc"
                         )
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .frame(minWidth: 72)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!coordinator.canChangeShortcut)
-                    .help("Press a key with Control, Option, Shift, or Command. Escape cancels.")
+                    .font(RecoStyle.Font.caption)
+                    .contentShape(Rectangle())
                 }
-
-                Text(
-                    coordinator.isCapturingShortcut
-                        ? "Press a key with a modifier. Escape cancels."
-                        : "Hold to record. Double-tap to keep recording; press once to stop."
-                )
-                .font(.system(size: 11))
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-                if coordinator.lastTranscription != nil {
-                    HStack {
-                        Text("Last transcription")
-                            .foregroundStyle(.secondary)
-
-                        Spacer()
-
-                        Button("Copy") {
-                            coordinator.copyLastTranscription()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
             }
 
-            Divider()
-
-            menuSection("Audio") {
-                HStack {
-                    Text("System audio")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Toggle("System audio", isOn: systemAudioBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .disabled(
-                            coordinator.capturesSystemAudio
-                                && !coordinator.capturesMicrophone
-                        )
+            Text(text)
+                .font(RecoStyle.Font.detail)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(text)
+                .contextMenu {
+                    Button("Copy") { copyLastTranscription() }
                 }
+        }
+    }
 
-                HStack {
-                    Text("Microphone")
-                        .foregroundStyle(.secondary)
+    private func copyLastTranscription() {
+        coordinator.copyLastTranscription()
+        copiedLastTranscription = true
+        copyResetTask?.cancel()
+        copyResetTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            copiedLastTranscription = false
+        }
+    }
 
-                    Spacer()
+    // MARK: Input
 
+    private var inputSection: some View {
+        VStack(alignment: .leading, spacing: RecoStyle.rowSpacing) {
+            MenuSectionHeader(title: "Input")
+
+            MenuRow(title: "Microphone") {
+                Menu {
                     Picker("Microphone", selection: microphoneBinding) {
-                        Text(coordinator.automaticMicrophoneName)
+                        Text(automaticMicrophoneTitle)
                             .tag(DictationCoordinator.MicrophoneSelection.automatic)
 
                         ForEach(coordinator.availableMicrophones) { device in
@@ -148,192 +280,73 @@ struct MenuContentView: View {
                             .tag(DictationCoordinator.MicrophoneSelection.off)
                             .disabled(!coordinator.capturesSystemAudio)
                     }
+                    .pickerStyle(.inline)
                     .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                    .frame(maxWidth: 180)
+                } label: {
+                    Text(coordinator.selectedMicrophoneName)
+                        .truncationMode(.middle)
                 }
-
-                Text(
-                    "Connected microphones refresh automatically. Changes apply to the next recording."
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .controlSize(.small)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: 190, alignment: .trailing)
+                .help("Changes apply to the next recording.")
             }
 
-            if coordinator.needsPermissions {
-                Divider()
-
-                menuSection("Permissions") {
-                    Text("Grant the access required by the selected audio sources.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    ForEach(coordinator.requiredPermissions) { permission in
-                        permissionRow(permission)
-                    }
-                }
+            MenuRow(title: "System audio") {
+                Toggle("System audio", isOn: systemAudioBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(coordinator.capturesSystemAudio && !coordinator.capturesMicrophone)
+                    .help("Also record what’s playing on this Mac.")
             }
-
-            Divider()
-
-            menuSection("Stats") {
-                UsageStatsSection(stats: usage.stats)
-            }
-
-            Divider()
-
-            menuSection("App") {
-                HStack {
-                    Text("Start at login")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Toggle("Start at login", isOn: launchAtLoginBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                }
-
-                HStack {
-                    Text("Hide menu bar icon")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Toggle("Hide menu bar icon", isOn: hideMenuBarIconBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                }
-
-                Text(
-                    "The shortcut keeps working while hidden. Open Reco again to bring the icon back."
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-                HStack {
-                    Text("Setup assistant")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button("Open…") {
-                        onShowSetup()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                HStack {
-                    Text("Command line")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button(CLIInstaller.isInstalled ? "Installed" : "Install…") {
-                        installCLI()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(CLIInstaller.isInstalled)
-                }
-
-                if let cliInstallResult {
-                    Text(cliInstallResult)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Divider()
-
-            HStack {
-                Text("NVIDIA Parakeet v3 · On-device")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-
-                Spacer()
-
-                Button("About Reco") {
-                    showAboutPanel()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-            }
-        }
-        .padding(16)
-        .frame(width: 290)
-        .onAppear {
-            coordinator.startPermissionPolling()
-            usage.refresh()
-            let currentLaunchAtLogin = SMAppService.mainApp.status == .enabled
-            if launchAtLogin != currentLaunchAtLogin {
-                launchAtLogin = currentLaunchAtLogin
-            }
-            if cliInstallResult != nil {
-                cliInstallResult = nil
-            }
-        }
-        .onDisappear {
-            coordinator.stopPermissionPolling()
-            coordinator.cancelShortcutCapture()
         }
     }
 
-    private func menuSection<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+    private var automaticMicrophoneTitle: String {
+        coordinator.automaticMicrophoneDeviceName.map { "Automatic (\($0))" } ?? "Automatic"
+    }
+
+    // MARK: Footer
+
+    private var footer: some View {
+        HStack {
+            Text("Parakeet v3 · On-device")
+                .font(RecoStyle.Font.footnote)
                 .foregroundStyle(.tertiary)
-                .tracking(0.5)
-
-            content()
-        }
-    }
-
-    @ViewBuilder
-    private func permissionRow(_ permission: DictationCoordinator.Permission) -> some View {
-        let granted = coordinator.isGranted(permission)
-        HStack(spacing: 8) {
-            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 13))
-                .foregroundStyle(granted ? Color.green : Color.secondary)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(permission.displayName)
-                    .font(.system(size: 12, weight: .medium))
-                Text(permission.purpose)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
 
             Spacer()
 
-            if !granted {
-                Button("Grant…") {
-                    coordinator.requestPermission(permission)
+            Menu {
+                Toggle("Start at Login", isOn: launchAtLoginBinding)
+                Button("Hide Menu Bar Icon…") { confirmHideMenuBarIcon() }
+
+                Divider()
+
+                Button("Setup Assistant…") { onShowSetup() }
+                if cliInstalled {
+                    Button("Command Line Tool Installed") {}
+                        .disabled(true)
+                } else {
+                    Button("Install Command Line Tool…") { installCLI() }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+
+                Divider()
+
+                Button("About Reco") { showAboutPanel() }
+                Button("Quit Reco") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q")
+            } label: {
+                Image(systemName: "gearshape")
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Settings")
         }
     }
+
+    // MARK: Bindings and actions
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
@@ -353,13 +366,6 @@ struct MenuContentView: View {
         )
     }
 
-    private var hideMenuBarIconBinding: Binding<Bool> {
-        Binding(
-            get: { !showMenuBarIcon },
-            set: { showMenuBarIcon = !$0 }
-        )
-    }
-
     private var systemAudioBinding: Binding<Bool> {
         Binding(
             get: { coordinator.capturesSystemAudio },
@@ -374,17 +380,67 @@ struct MenuContentView: View {
         )
     }
 
+    private func confirmHideMenuBarIcon() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Hide the menu bar icon?"
+        alert.informativeText =
+            "Reco keeps running and \(coordinator.hotkey.displayName) still records. To show the icon again, open Reco from your Applications folder."
+        alert.addButton(withTitle: "Hide Icon")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            showMenuBarIcon = false
+        }
+    }
+
     private func showAboutPanel() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSApplication.shared.orderFrontStandardAboutPanel(nil)
     }
 
     private func installCLI() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
         do {
             let destination = try CLIInstaller.install()
-            cliInstallResult = "Installed at \(destination.path)"
+            cliInstalled = true
+            alert.messageText = "Command line tool installed"
+            alert.informativeText =
+                "Run reco from Terminal. It’s installed at \(destination.path); make sure that folder is on your PATH."
         } catch {
-            cliInstallResult = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn’t install the command line tool"
+            alert.informativeText = error.localizedDescription
         }
+        alert.runModal()
+    }
+}
+
+/// A tinted box for something the user needs to act on, shown at the top of
+/// the menu so it's seen first.
+private struct AttentionCallout<Content: View>: View {
+    let symbol: String
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: symbol)
+                    .foregroundStyle(.orange)
+                Text(title)
+                    .font(RecoStyle.Font.detailEmphasized)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(RecoStyle.Font.detail)
+
+            content
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.orange.opacity(0.1),
+            in: RoundedRectangle(cornerRadius: RecoStyle.cornerRadius)
+        )
     }
 }

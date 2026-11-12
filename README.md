@@ -102,9 +102,10 @@ unsupported audio, or no detected speech produces an error on stderr.
 ## Usage stats
 
 Reco counts each successful transcription (hotkey, `reco record`, and
-`reco transcribe`) and the words it produced. The **Stats** section of Reco's
+`reco transcribe`) and the words it produced. The **Usage** section of Reco's
 menu shows lifetime totals and a bar chart of words or transcriptions per day
-over the last 30 days; hover a bar to see that day's count. The same numbers are
+over the last 30 days; click a total to chart it, and hover a bar to see that
+day's count. The same numbers are
 available from the CLI, whether or not Reco is running:
 
 ```sh
@@ -142,7 +143,7 @@ file. Existing `UserDefaults` values from older Reco versions are migrated on
 first launch. Manual edits are watched while Reco runs; invalid edits leave the
 last valid configuration active and appear as an error in the menu.
 
-Choose **Install…** beside **Command line** in Reco's menu to symlink the
+Choose **Install Command Line Tool…** from the gear menu in Reco's menu to symlink the
 bundled executable to `~/.local/bin/reco`. Ensure `~/.local/bin` is on `PATH`,
 then use:
 

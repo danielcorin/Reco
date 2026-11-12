@@ -88,9 +88,11 @@ final class DictationCoordinator: ObservableObject {
     private var latchRequestedWhileStarting = false
     private var isRequestingPermissions = false
     private var cliRecordingID: UUID?
+    private var copiedWithoutPaste = false
 
     private static let doubleTapWindow: Duration = .milliseconds(280)
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
+    private static let noSpeechMessage = "No speech was detected."
     private static let missingPasteAccessMessage =
         "Text was copied, but Accessibility access is required to paste it automatically."
     // Ghostty-based terminals accept AXSelectedText, but their AXValue is the
@@ -113,13 +115,26 @@ final class DictationCoordinator: ObservableObject {
         switch state {
         case .recording: "waveform.circle.fill"
         case .transcribing: "ellipsis.circle"
-        default: "waveform.circle"
+        default: needsAttention ? "exclamationmark.circle" : "waveform.circle"
         }
+    }
+
+    /// Something the user has to act on before dictation fully works.
+    var needsAttention: Bool {
+        if case .failed = modelPreparationState { return true }
+        return needsPermissions
+    }
+
+    /// The error to show in the menu. A missing-Accessibility message is
+    /// covered by the permissions callout, so it isn't repeated.
+    var visibleErrorMessage: String? {
+        if errorMessage == Self.missingPasteAccessMessage, needsPermissions { return nil }
+        return errorMessage
     }
 
     var statusText: String {
         switch state {
-        case .loadingModel: "Loading Parakeet…"
+        case .loadingModel: "Loading model…"
         case .ready: "Ready"
         case .recording(let latched): latched ? "Recording · locked" : "Recording"
         case .transcribing: "Transcribing…"
@@ -145,11 +160,24 @@ final class DictationCoordinator: ObservableObject {
         return !isStartingRecording
     }
 
-    var automaticMicrophoneName: String {
+    /// The microphone Automatic resolves to: the built-in one when present.
+    var automaticMicrophoneDeviceName: String? {
         let preferred =
             availableMicrophones.first(where: \.isBuiltIn)
             ?? availableMicrophones.first
-        return preferred.map { "Automatic · \($0.name)" } ?? "Automatic"
+        return preferred?.name
+    }
+
+    /// The name of the microphone the next recording will use.
+    var selectedMicrophoneName: String {
+        switch microphoneSelection {
+        case .automatic:
+            automaticMicrophoneDeviceName ?? "Automatic"
+        case .device(let id):
+            availableMicrophones.first { $0.id == id }?.name ?? "Automatic"
+        case .off:
+            "Off"
+        }
     }
 
     var requiredPermissions: [Permission] {
@@ -570,7 +598,7 @@ final class DictationCoordinator: ObservableObject {
                 do {
                     let text = try await transcriber.transcribe(url)
                     guard !text.isEmpty else {
-                        continuation.resume(throwing: RecordingCommandError("No speech was detected."))
+                        continuation.resume(throwing: RecordingCommandError(Self.noSpeechMessage))
                         return
                     }
                     onTranscribed?(text)
@@ -673,7 +701,7 @@ final class DictationCoordinator: ObservableObject {
         do {
             let text = try await transcriber.transcribe(url)
             guard !text.isEmpty else {
-                return .failure(RecordingCommandError("No speech was detected."))
+                return .failure(RecordingCommandError(Self.noSpeechMessage))
             }
             onTranscribed?(text)
             if deliverToApp { deliverTranscription(text) }
@@ -690,7 +718,14 @@ final class DictationCoordinator: ObservableObject {
         // Completion must not overwrite the overlay or state of a newer recording.
         guard state == .transcribing, !isStartingRecording else { return }
         guard pendingTranscriptions == 0 else { return }
-        overlay.hide()
+        if let errorText {
+            overlay.showNotice(errorText == Self.noSpeechMessage ? .noSpeech : .transcriptionFailed)
+        } else if copiedWithoutPaste {
+            overlay.showNotice(.copied)
+        } else {
+            overlay.hide()
+        }
+        copiedWithoutPaste = false
         if errorText == nil {
             state = .ready
         } else {
@@ -701,9 +736,11 @@ final class DictationCoordinator: ObservableObject {
 
     private func deliverTranscription(_ text: String) {
         lastTranscription = text
+        copiedWithoutPaste = false
 
         guard AXIsProcessTrusted() else {
             copyToClipboard(text)
+            copiedWithoutPaste = true
             needsPermissions = true
             errorMessage = Self.missingPasteAccessMessage
             return
@@ -836,7 +873,7 @@ final class DictationCoordinator: ObservableObject {
         isHotkeyHeld = false
         releaseTask?.cancel()
         releaseTask = nil
-        overlay.hide()
+        overlay.showNotice(.recordingFailed)
         errorMessage = message
         state = .failed
         scheduleFailedReset()

@@ -1,9 +1,11 @@
+import RecoCore
 import ServiceManagement
 import SwiftUI
 
 struct MenuContentView: View {
     @ObservedObject var coordinator: DictationCoordinator
     @ObservedObject var usage: UsageTracker
+    @ObservedObject var vocabulary: PersonalVocabulary
     @Binding var showMenuBarIcon: Bool
     let configurationError: String?
     let onShowSetup: () -> Void
@@ -32,6 +34,9 @@ struct MenuContentView: View {
             inputSection
 
             Divider()
+            vocabularySection
+
+            Divider()
             VStack(alignment: .leading, spacing: RecoStyle.rowSpacing) {
                 MenuSectionHeader(title: "Usage")
                 UsageStatsSection(stats: usage.stats)
@@ -52,6 +57,7 @@ struct MenuContentView: View {
         .onAppear {
             coordinator.startPermissionPolling()
             usage.refresh()
+            vocabulary.reload()
             let currentLaunchAtLogin = SMAppService.mainApp.status == .enabled
             if launchAtLogin != currentLaunchAtLogin {
                 launchAtLogin = currentLaunchAtLogin
@@ -156,6 +162,7 @@ struct MenuContentView: View {
         !missingPermissions.isEmpty
             || coordinator.visibleErrorMessage != nil
             || configurationError != nil
+            || vocabulary.loadError != nil
     }
 
     private var attentionCallouts: some View {
@@ -188,6 +195,16 @@ struct MenuContentView: View {
             if let configurationError {
                 AttentionCallout(symbol: "exclamationmark.triangle.fill", title: configurationError) {
                     EmptyView()
+                }
+            }
+
+            if let vocabularyError = vocabulary.loadError {
+                AttentionCallout(symbol: "exclamationmark.triangle.fill", title: vocabularyError) {
+                    HStack {
+                        Spacer()
+                        Button("Edit Vocabulary") { editVocabulary() }
+                            .controlSize(.small)
+                    }
                 }
             }
         }
@@ -305,6 +322,103 @@ struct MenuContentView: View {
 
     private var automaticMicrophoneTitle: String {
         coordinator.automaticMicrophoneDeviceName.map { "Automatic (\($0))" } ?? "Automatic"
+    }
+
+    // MARK: Vocabulary
+
+    private var vocabularySection: some View {
+        VocabularySection(
+            rows: vocabulary.recentFixes.map { fix in
+                VocabularyFixRow(
+                    id: fix.id,
+                    heard: fix.correction.heard,
+                    corrected: fix.correction.corrected,
+                    label: Self.label(for: fix.kind),
+                    isRemoved: fix.kind == .forgotten,
+                    canStopFixing: vocabulary.canRemoveRule(for: fix)
+                )
+            },
+            wordCount: vocabulary.vocabulary.terms.count,
+            unavailableReason: {
+                if case .failed(let reason) = coordinator.boostStatus { return reason }
+                return nil
+            }(),
+            onTeach: teachWord,
+            onEdit: editVocabulary,
+            onStopFixing: { id in
+                guard let fix = vocabulary.recentFixes.first(where: { $0.id == id }) else { return }
+                vocabulary.removeRule(for: fix)
+            },
+            onRetry: { coordinator.retryBoostPreparation() }
+        )
+    }
+
+    private static func label(for kind: PersonalVocabulary.RecentFix.Kind) -> String {
+        switch kind {
+        case .applied(.taught): "Taught"
+        case .applied(.learned): "Learned"
+        case .applied(.nearbyText): "Nearby text"
+        case .learned: "New rule"
+        case .forgotten: "Removed"
+        }
+    }
+
+    private func teachWord() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Teach Reco a word"
+        alert.informativeText =
+            "Reco listens for this word. If it writes something else instead, list those spellings too."
+
+        let word = NSTextField()
+        word.placeholderString = "Word or phrase, like Reco"
+        let heard = NSTextField()
+        heard.placeholderString = "Heard as (optional), like Rico, Rekko"
+        let stack = NSStackView(views: [word, heard])
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 52)
+        for field in [word, heard] {
+            field.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        }
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Teach")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = word
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let spellings = heard.stringValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        do {
+            try vocabulary.teach(word.stringValue, heard: spellings)
+        } catch {
+            let failure = NSAlert()
+            failure.alertStyle = .warning
+            failure.messageText = "Couldn’t add that word"
+            failure.informativeText = error.localizedDescription
+            failure.runModal()
+        }
+    }
+
+    private func editVocabulary() {
+        let url = vocabulary.store.fileURL
+        do {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try vocabulary.store.writeTemplate()
+            }
+        } catch {
+            NSLog("Reco: couldn’t create the vocabulary file: %@", error.localizedDescription)
+            return
+        }
+        // .toml often has no default app; fall back to TextEdit.
+        let configuration = NSWorkspace.OpenConfiguration()
+        if NSWorkspace.shared.urlForApplication(toOpen: url) != nil {
+            NSWorkspace.shared.open(url)
+        } else if let textEdit = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.TextEdit") {
+            NSWorkspace.shared.open([url], withApplicationAt: textEdit, configuration: configuration)
+        }
     }
 
     // MARK: Footer

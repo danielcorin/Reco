@@ -29,7 +29,7 @@ private struct Command {
     init(_ rawArguments: [String]) throws {
         json = rawArguments.contains("--json")
         let positional = rawArguments.filter { $0 != "--json" }
-        if let first = positional.first, ["record", "stop", "transcribe", "stats"].contains(first) {
+        if let first = positional.first, ["record", "stop", "transcribe", "stats", "vocab"].contains(first) {
             isTopLevelCommand = true
             action = first
             arguments = Array(positional.dropFirst())
@@ -89,6 +89,8 @@ private func run(_ command: Command) throws {
             try runFileTranscriptionCommand(arguments: command.arguments, json: command.json)
         } else if command.action == "stats" {
             try runStatsCommand(arguments: command.arguments, json: command.json)
+        } else if command.action == "vocab" {
+            try runVocabularyCommand(arguments: command.arguments, json: command.json)
         } else {
             try runRecordingCommand(command.action, arguments: command.arguments, json: command.json)
         }
@@ -190,6 +192,10 @@ private let help = """
       reco stop [--json]                         Stop the active CLI recording
       reco transcribe <audio-file> [--json]      Transcribe an existing audio file
       reco stats [--days <n>] [--json]          Print usage totals and daily counts
+      reco vocab [list] [--json]                List vocabulary terms
+      reco vocab add <word> [--heard <s>]...    Teach a word, optionally with misheard spellings
+      reco vocab remove <word> [--heard <s>]... Remove a word, or only some heard spellings
+      reco vocab path [--json]                  Print the vocabulary file path
       reco config path [--json]                 Print the configuration file path
       reco config get <key> [--json]            Print one effective value
       reco config set <key> <value> [--json]    Persist an override
@@ -211,6 +217,12 @@ private let help = """
     for the last 30 days (--days 0 prints totals only). It reads
     $XDG_DATA_HOME/reco/stats.json, falling back to ~/.local/share/reco/stats.json,
     and works while Reco is not running. Only counts are stored, never text.
+
+    vocab manages the words Reco listens for, in vocabulary.toml beside
+    config.toml. A word is swapped in only when the audio supports it; each
+    --heard spelling (what Reco wrote instead) makes that swap more likely.
+    Reco also learns heard spellings from corrections you make after dictating.
+    Quote phrases: reco vocab add "pull request" --heard "pool request".
 
     Keys:
       hotkey                Global shortcut, for example control+e

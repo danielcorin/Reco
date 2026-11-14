@@ -118,6 +118,52 @@ Stats live in `$XDG_DATA_HOME/reco/stats.json` (`~/.local/share/reco/stats.json`
 when `XDG_DATA_HOME` is unset or relative) as per-day counts in local time.
 Transcript text is never stored. Delete the file to reset the counts.
 
+## Vocabulary and context
+
+Reco fits each dictation to the text around the cursor and learns the words you
+use:
+
+- **Fits the sentence.** In apps whose text fields are readable over
+  Accessibility (most native Mac apps), Reco reads up to 300 characters on each
+  side of the cursor. Dictating mid-sentence lowercases the first word (except
+  for "I", acronyms, names, and vocabulary words), drops the trailing period when
+  the sentence continues after the cursor, and adds the spaces the surrounding
+  text needs. Password fields are never read. Where the field can't be read
+  (Ghostty, cmux, many Electron apps), text is inserted exactly as transcribed.
+- **Listens for your words.** A second, small model (Parakeet CTC 110M) scores
+  the same recording alongside Parakeet. Reco swaps in a vocabulary word only
+  when that model's acoustic evidence supports it. Each dictation's word list
+  combines your vocabulary with names and identifiers taken from the text around
+  the cursor and the window title. The list is built while you speak; the second
+  model adds roughly 40–80 ms after you release the shortcut.
+- **Learns from your corrections.** Reco remembers its last insertion in memory
+  only. On your next dictation, or 90 seconds later, it rereads that span; if you
+  swapped one to three words for something that sounds similar, it saves the pair
+  as a `heard` spelling and applies it from then on. If you change a learned fix
+  back, Reco forgets it. The **Vocabulary** section of the menu lists recent
+  fixes; hover one (or right-click it) to stop making it.
+
+The vocabulary lives in `vocabulary.toml` beside the configuration file, so it
+travels with your dotfiles and works with any recognition model:
+
+```toml
+[[term]]
+text = "Reco"
+heard = ["Rico", "eco"]
+source = "taught"   # or "learned"
+```
+
+```sh
+reco vocab                                  # list terms
+reco vocab add Reco --heard Rico            # teach a word and a misheard spelling
+reco vocab add "pull request"               # quote phrases
+reco vocab remove Reco --heard Rico         # stop one fix; omit --heard to remove the word
+reco vocab path
+```
+
+Only word pairs are stored, never transcripts. See the
+[configuration guide](docs/Configuration.md#vocabulary) for details.
+
 ## Configuration and CLI
 
 See the [configuration guide](docs/Configuration.md) for the complete schema,
@@ -199,7 +245,7 @@ That command requires a clean branch synchronized with its upstream, creates a u
 
 Reco registers only the configured global shortcut through the macOS hotkey API; it does not monitor unrelated keyboard input. The app is not sandboxed because it synthesizes Command-V to insert transcribed text. macOS Accessibility consent provides the user control for that event posting.
 
-Microphone and system audio are captured only during a hotkey or CLI recording. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. It keeps per-day transcription and word counts for [usage stats](#usage-stats), never the transcribed text. Network access is required on first use to download the model artifacts from Hugging Face.
+Microphone and system audio are captured only during a hotkey or CLI recording. Reco writes each source to a randomly named temporary track, mixes them locally into one recording, transcribes that recording, and deletes all temporary audio when transcription completes. Reco does not send recordings to a transcription service. It keeps per-day transcription and word counts for [usage stats](#usage-stats), never the transcribed text. To fit and correct dictations, Reco reads up to 300 characters around the cursor in the focused field (never password fields) and keeps its last insertion in memory to notice corrections; only learned word pairs are written to disk, in `vocabulary.toml`. Network access is required on first use to download the model artifacts from Hugging Face.
 
 Recording commands communicate over a local Unix socket accessible only to the
 same macOS user. The app keeps responsibility for capture permissions, the
@@ -210,6 +256,7 @@ visible recording overlay, and model execution.
 - Reco source: [Apache License 2.0](LICENSE).
 - [FluidAudio 0.15.5](https://github.com/FluidInference/FluidAudio/tree/v0.15.5): Apache-2.0. FluidAudio includes Fastcluster code under BSD-2-Clause and code based on VBx under Apache-2.0.
 - [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml): treated as CC BY 4.0, matching the repository metadata and its NVIDIA base model. The weights are downloaded at runtime and are not included in this repository.
+- [FluidInference/parakeet-ctc-110m-coreml](https://huggingface.co/FluidInference/parakeet-ctc-110m-coreml), used for vocabulary boosting: CC BY 4.0, matching the repository metadata and its NVIDIA base model, [nvidia/parakeet-tdt_ctc-110m](https://huggingface.co/nvidia/parakeet-tdt_ctc-110m). Downloaded at runtime into FluidAudio's shared model cache.
 - [Swift TOML 2.0.0](https://github.com/mattt/swift-toml/tree/2.0.0), including toml++ 3.4.0: MIT.
 
 The converted model repository's metadata and NVIDIA base model specify CC BY 4.0, although a sentence in the converted model card says Apache-2.0. Reco conservatively follows CC BY 4.0. Distributors that bundle or mirror the weights should retain attribution and seek clarification from Fluid Inference.

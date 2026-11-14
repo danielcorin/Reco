@@ -13,6 +13,7 @@ final class RecoAppModel: ObservableObject {
 
     let coordinator: DictationCoordinator
     let usage = UsageTracker()
+    let vocabulary: PersonalVocabulary
     let configurationStore: AppConfigurationStore
 
     private var directoryWatcher: ConfigurationDirectoryWatcher?
@@ -38,7 +39,9 @@ final class RecoAppModel: ObservableObject {
         let initialHotkey =
             (try? Hotkey.from(configurationValue: initialConfiguration.hotkey))
             ?? .defaultHotkey
-        coordinator = DictationCoordinator(initialHotkey: initialHotkey)
+        let vocabulary = PersonalVocabulary()
+        self.vocabulary = vocabulary
+        coordinator = DictationCoordinator(initialHotkey: initialHotkey, vocabulary: vocabulary)
         coordinator.onHotkeyChanged = { [weak self] hotkey in
             guard let self else { return }
             try self.persist(hotkey: hotkey)

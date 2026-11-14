@@ -18,6 +18,7 @@ struct RecoApp: App {
             MenuContentView(
                 coordinator: model.coordinator,
                 usage: model.usage,
+                vocabulary: model.vocabulary,
                 showMenuBarIcon: showMenuBarIconBinding,
                 configurationError: model.configurationError,
                 onShowSetup: appDelegate.showSetup

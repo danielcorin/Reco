@@ -1,6 +1,12 @@
 import FluidAudio
 import Foundation
 
+/// Parakeet's text plus the per-token timings vocabulary rescoring aligns to.
+struct ParakeetTranscript: Sendable {
+    var text: String
+    var tokenTimings: [TokenTiming]
+}
+
 @MainActor
 final class ParakeetTranscriber {
     enum LoadStage: Sendable {
@@ -17,11 +23,14 @@ final class ParakeetTranscriber {
         _ = try await loadManager(progressHandler: progressHandler)
     }
 
-    func transcribe(_ url: URL) async throws -> String {
+    func transcribe(_ url: URL) async throws -> ParakeetTranscript {
         let manager = try await loadManager(progressHandler: nil)
         var decoderState = try TdtDecoderState()
         let result = try await manager.transcribe(url, decoderState: &decoderState)
-        return result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return ParakeetTranscript(
+            text: result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+            tokenTimings: result.tokenTimings ?? []
+        )
     }
 
     private func loadManager(

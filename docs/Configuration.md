@@ -85,6 +85,61 @@ Writes made by Reco or its CLI are atomic. When the final override is removed,
 Reco removes the now-empty configuration file; the absence of the file simply
 means “use defaults.”
 
+## Vocabulary
+
+Words Reco listens for live in a second file beside the configuration:
+
+```text
+$XDG_CONFIG_HOME/reco/vocabulary.toml   (default ~/.config/reco/vocabulary.toml)
+```
+
+It sits with `config.toml` rather than with the usage stats so that it travels
+with your configuration. The file is optional; a missing file means an empty
+vocabulary. Each word is an `[[term]]` table:
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `text` | string | required | The word or phrase as it should be written, up to 64 characters. |
+| `heard` | array of strings | `[]` | Spellings the model wrote instead. Each belongs to one term. |
+| `source` | `"taught"` or `"learned"` | `"taught"` | Whether you added it or Reco learned it from a correction. |
+
+```toml
+[[term]]
+text = "Reco"
+heard = ["Rico", "eco"]
+source = "taught"
+
+[[term]]
+text = "FluidAudio"
+source = "taught"
+```
+
+Reco swaps a transcribed word for a term only when the vocabulary-boosting
+model's acoustic evidence supports the term, and only for close spellings or a
+listed `heard` spelling, so "Puerto Rico" stays as it is even with "Reco" in the
+vocabulary. A word that matches a term apart from case takes the term's casing.
+
+Reco writes learned terms itself. A learned term exists only for its `heard`
+spellings: removing the last one removes the term, and if you change a learned
+fix back in a document, Reco removes that spelling. Taught terms change only
+when you change them. Matching is case-insensitive and terms are kept in the
+order they were added.
+
+Manage the file from the menu (**Teach…**, **Edit**), with `reco vocab`, or in
+a text editor:
+
+```sh
+reco vocab [list] [--json]
+reco vocab add <word> [--heard <spelling>]... [--json]
+reco vocab remove <word> [--heard <spelling>]... [--json]
+reco vocab path [--json]
+```
+
+Reco rereads the file before every dictation, so edits take effect right away
+without a reload. Unknown keys and invalid values are rejected, and the menu
+shows the error until the file is fixed. Writes are atomic, the file has mode
+`0600`, and Reco deletes it when the last term is removed.
+
 ## Migration and security
 
 On first launch after upgrading, Reco migrates the previous hotkey and menu-bar

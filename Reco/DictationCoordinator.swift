@@ -5,6 +5,7 @@ import Combine
 import CoreGraphics
 import RecoCore
 import SwiftUI
+import os
 
 @MainActor
 final class DictationCoordinator: ObservableObject {
@@ -46,6 +47,14 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
+    /// The word-boosting model loads after Parakeet and never blocks
+    /// dictation: until it is ready, transcripts are simply not boosted.
+    enum BoostStatus: Equatable {
+        case loading
+        case ready
+        case failed(String)
+    }
+
     enum MicrophoneSelection: Hashable {
         case automatic
         case device(String)
@@ -65,9 +74,18 @@ final class DictationCoordinator: ObservableObject {
     @Published private(set) var availableMicrophones: [AudioInputDevice] = []
     @Published private(set) var microphoneSelection: MicrophoneSelection = .automatic
     @Published private(set) var capturesSystemAudio = true
+    @Published private(set) var boostStatus: BoostStatus = .loading
+
+    let vocabulary: PersonalVocabulary
 
     private let recorder = AudioRecorder()
     private let transcriber = ParakeetTranscriber()
+    private let booster = VocabularyBooster()
+    /// The current recording's word list, built while the user speaks.
+    private var pendingPlan: Task<BoostPlan?, Never>?
+    /// The last insertion, kept in memory until an edit to it is reviewed.
+    private var pendingInsertion: PendingInsertion?
+    private var insertionReviewTask: Task<Void, Never>?
     private let hotkeyMonitor = HotkeyMonitor()
     private let overlay = RecordingOverlayController()
     private var releaseTask: Task<Void, Never>?
@@ -91,6 +109,11 @@ final class DictationCoordinator: ObservableObject {
     private var copiedWithoutPaste = false
 
     private static let doubleTapWindow: Duration = .milliseconds(280)
+    /// How long after an insertion Reco looks for corrections, if no new
+    /// dictation prompts it sooner.
+    private static let insertionReviewDelay: Duration = .seconds(90)
+    private static let log = Logger(subsystem: "com.danielcorin.Reco", category: "vocabulary")
+    private static let focusLookupTimeout: Float = 0.5
     private static let clipboardRestoreDelay: Duration = .milliseconds(500)
     private static let noSpeechMessage = "No speech was detected."
     private static let missingPasteAccessMessage =
@@ -107,8 +130,9 @@ final class DictationCoordinator: ObservableObject {
     /// Called with the text of every successful transcription, from any source.
     var onTranscribed: ((String) -> Void)?
 
-    init(initialHotkey: Hotkey) {
+    init(initialHotkey: Hotkey, vocabulary: PersonalVocabulary) {
         hotkey = initialHotkey
+        self.vocabulary = vocabulary
     }
 
     var menuBarSymbol: String {
@@ -223,6 +247,11 @@ final class DictationCoordinator: ObservableObject {
     func retryModelPreparation() {
         guard case .failed = modelPreparationState else { return }
         prepareModel()
+    }
+
+    func retryBoostPreparation() {
+        guard case .failed = boostStatus else { return }
+        prepareBooster()
     }
 
     func beginShortcutCapture() {
@@ -421,8 +450,9 @@ final class DictationCoordinator: ObservableObject {
 
         Task {
             do {
-                try await transcriber.prepare { [weak self] progress, stage in
-                    guard let self else { return }
+                // The coordinator lives as long as the app; the task already
+                // holds it strongly.
+                try await transcriber.prepare { [self] progress, stage in
                     modelLoadProgress = progress
                     switch stage {
                     case .downloading:
@@ -434,11 +464,25 @@ final class DictationCoordinator: ObservableObject {
                 modelLoadProgress = 1
                 modelPreparationState = .ready
                 if state == .loadingModel { state = .ready }
+                prepareBooster()
             } catch {
                 let message = "Couldn’t load Parakeet: \(error.localizedDescription)"
                 modelPreparationState = .failed(message)
                 errorMessage = message
                 state = .failed
+            }
+        }
+    }
+
+    private func prepareBooster() {
+        boostStatus = .loading
+        Task {
+            do {
+                try await booster.prepare()
+                boostStatus = .ready
+            } catch {
+                boostStatus = .failed(error.localizedDescription)
+                Self.log.error("Word boosting unavailable: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -513,6 +557,8 @@ final class DictationCoordinator: ObservableObject {
             guard modelPreparationState == .ready else { return }
             overlay.show(latched: false)
             beginRecording()
+            // Accessibility reads run after the recorder starts, not before.
+            Task { [weak self] in self?.prepareDictation(readingContext: true) }
         case .recording(let latched):
             if latched {
                 releaseTask?.cancel()
@@ -564,6 +610,7 @@ final class DictationCoordinator: ObservableObject {
         cliRecordingID = id
         isHotkeyHeld = false
         overlay.show(latched: true)
+        prepareDictation(readingContext: false)
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 beginRecording(latched: true) { continuation.resume(with: $0) }
@@ -593,10 +640,13 @@ final class DictationCoordinator: ObservableObject {
         guard values?.isRegularFile == true, values?.isReadable == true else {
             throw RecordingCommandError("Audio file is missing or unreadable: \(url.path)")
         }
+        let terms = vocabulary.boostTerms(nearby: [])
+        let plan = Task { [booster] in await booster.plan(for: terms) }
         return try await withCheckedThrowingContinuation { continuation in
             transcriptionQueue.enqueue { [self] in
                 do {
-                    let text = try await transcriber.transcribe(url)
+                    let (text, fixes) = try await transcribe(url, plan: await plan.value)
+                    vocabulary.recordApplied(fixes)
                     guard !text.isEmpty else {
                         continuation.resume(throwing: RecordingCommandError(Self.noSpeechMessage))
                         return
@@ -670,9 +720,12 @@ final class DictationCoordinator: ObservableObject {
         // cannot overtake earlier, longer dictations.
         let stopTask = Task { try await recorder.stop() }
         recordingStopTask = stopTask
+        let planTask = pendingPlan
+        pendingPlan = nil
         pendingTranscriptions += 1
         transcriptionQueue.enqueue { [self] in
-            let result = await transcribeRecording(stopTask, deliverToApp: completion == nil)
+            let result = await transcribeRecording(
+                stopTask, plan: planTask, deliverToApp: completion == nil)
             let errorText: String?
             switch result {
             case .success: errorText = nil
@@ -688,7 +741,7 @@ final class DictationCoordinator: ObservableObject {
     }
 
     private func transcribeRecording(
-        _ stopTask: Task<URL, Error>, deliverToApp: Bool
+        _ stopTask: Task<URL, Error>, plan planTask: Task<BoostPlan?, Never>?, deliverToApp: Bool
     ) async -> Result<String, Error> {
         let url: URL
         do {
@@ -699,15 +752,105 @@ final class DictationCoordinator: ObservableObject {
 
         defer { try? FileManager.default.removeItem(at: url) }
         do {
-            let text = try await transcriber.transcribe(url)
+            let (text, fixes) = try await transcribe(url, plan: await planTask?.value)
             guard !text.isEmpty else {
                 return .failure(RecordingCommandError(Self.noSpeechMessage))
             }
+            vocabulary.recordApplied(fixes)
             onTranscribed?(text)
-            if deliverToApp { deliverTranscription(text) }
+            if deliverToApp { deliverTranscription(text, fixes: fixes) }
             return .success(text)
         } catch {
             return .failure(RecordingCommandError("Transcription failed: \(error.localizedDescription)"))
+        }
+    }
+
+    /// Reviews the previous insertion for corrections, then builds this
+    /// recording's word list from the vocabulary and, for hotkey dictation,
+    /// the text around the cursor. Runs while the user is speaking.
+    private func prepareDictation(readingContext: Bool) {
+        reviewPendingInsertion()
+        var nearby: [String] = []
+        if readingContext, AXIsProcessTrusted(), let field = focusedUIElement(), !Self.isPasteOnly(field),
+            let focused = FocusedText.capture(from: field, includeTitle: true)
+        {
+            nearby = ContextTerms.extract(
+                before: focused.context.before,
+                after: focused.context.after,
+                title: focused.windowTitle
+            )
+        }
+        let terms = vocabulary.boostTerms(nearby: nearby)
+        pendingPlan = Task { [booster] in await booster.plan(for: terms) }
+    }
+
+    /// Parakeet and, when there is a word list, the word-boosting model run
+    /// on the recording in parallel; the rescoring itself takes milliseconds.
+    private func transcribe(_ url: URL, plan: BoostPlan?) async throws -> (String, [AppliedFix]) {
+        guard let plan else { return (try await transcriber.transcribe(url).text, []) }
+
+        let started = ContinuousClock.now
+        async let scoresTask = try? await booster.scoreAudio(url, plan: plan)
+        let transcript = try await transcriber.transcribe(url)
+        let transcribed = ContinuousClock.now
+        let scores = await scoresTask
+        let scored = ContinuousClock.now
+
+        var text = transcript.text
+        var fixes: [AppliedFix] = []
+        if let scores {
+            (text, fixes) = booster.rescore(
+                transcript, scores: scores, plan: plan, isOrdinaryWord: PersonalVocabulary.isOrdinaryWord)
+        }
+        let personal = plan.terms.filter { $0.origin != .nearbyText }
+        let cased = Vocabulary.applyingCase(of: personal.map(\.text), to: text)
+        text = cased.text
+        fixes += cased.fixes.map { fix in
+            AppliedFix(
+                correction: fix,
+                origin: personal.first { $0.text == fix.corrected }?.origin ?? .taught
+            )
+        }
+
+        let wait = scored - transcribed
+        Self.log.info(
+            "Boosted \(plan.terms.count) terms: Parakeet \((transcribed - started).formatted(.units(allowed: [.milliseconds])), privacy: .public), extra wait \(wait.formatted(.units(allowed: [.milliseconds])), privacy: .public), \(fixes.count) fixes"
+        )
+        return (text, fixes)
+    }
+
+    /// Looks for corrections to the last insertion and teaches them to the
+    /// vocabulary. The insertion is forgotten afterward either way.
+    private func reviewPendingInsertion() {
+        insertionReviewTask?.cancel()
+        insertionReviewTask = nil
+        guard let insertion = pendingInsertion else { return }
+        pendingInsertion = nil
+        guard let edited = insertion.editedText() else { return }
+        let review = CorrectionLearner.review(
+            inserted: insertion.insertedText,
+            edited: edited,
+            applied: insertion.appliedFixes.map(\.correction),
+            isOrdinaryWord: PersonalVocabulary.isOrdinaryWord
+        )
+        vocabulary.learn(from: review, applied: insertion.appliedFixes)
+    }
+
+    private func rememberInsertion(_ text: String, at focused: FocusedText, fixes: [AppliedFix]) {
+        let anchors = EditRecovery.anchors(for: focused.context)
+        pendingInsertion = PendingInsertion(
+            element: focused.element,
+            location: focused.selection.location,
+            insertedText: text,
+            beforeAnchor: anchors.before,
+            afterAnchor: anchors.after,
+            appliedFixes: fixes
+        )
+        insertionReviewTask?.cancel()
+        insertionReviewTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.insertionReviewDelay)
+            guard !Task.isCancelled else { return }
+            self?.reviewPendingInsertion()
         }
     }
 
@@ -734,7 +877,7 @@ final class DictationCoordinator: ObservableObject {
         }
     }
 
-    private func deliverTranscription(_ text: String) {
+    private func deliverTranscription(_ text: String, fixes: [AppliedFix]) {
         lastTranscription = text
         copiedWithoutPaste = false
 
@@ -746,16 +889,24 @@ final class DictationCoordinator: ObservableObject {
             return
         }
 
-        if let field = focusedUIElement(), !Self.isPasteOnly(field),
-            insertViaAccessibility(text, into: field)
-        {
+        let field = focusedUIElement()
+        let pasteOnly = field.map(Self.isPasteOnly) ?? true
+        // Fit the transcript to the text around the cursor where it can be
+        // read; elsewhere it goes in exactly as transcribed.
+        let focused = pasteOnly ? nil : field.flatMap { FocusedText.capture(from: $0) }
+        let formatted = TranscriptFormatter.fit(text, into: focused?.context) { [vocabulary] word in
+            vocabulary.keepsCapitalized(word, in: text)
+        }
+        if let focused { rememberInsertion(formatted, at: focused, fixes: fixes) }
+
+        if let field, !pasteOnly, insertViaAccessibility(formatted, into: field) {
             return
         }
 
         // Chromium-family apps build their accessibility tree lazily, so a
         // missing or unusable focused element means "paste", not "nothing is
         // focused" — the pasteboard is restored afterward either way.
-        pasteRestoringClipboard(text)
+        pasteRestoringClipboard(formatted)
     }
 
     func copyLastTranscription() {
@@ -771,6 +922,10 @@ final class DictationCoordinator: ObservableObject {
 
     private func focusedUIElement() -> AXUIElement? {
         let systemWide = AXUIElementCreateSystemWide()
+        // This runs on the main thread at every key press and delivery; a hung
+        // app would otherwise hold it for Accessibility's default 6 seconds.
+        // On a timeout Reco skips context and pastes, as it does for Chromium.
+        AXUIElementSetMessagingTimeout(systemWide, Self.focusLookupTimeout)
         var focusedRef: CFTypeRef?
         guard
             AXUIElementCopyAttributeValue(
@@ -794,6 +949,10 @@ final class DictationCoordinator: ObservableObject {
     // honor a settable AXSelectedText; Electron apps, most terminals, and
     // SwiftUI fields do not, and those fall through to the paste path.
     private func insertViaAccessibility(_ text: String, into field: AXUIElement) -> Bool {
+        // Reading context shortened this element's timeout. An insertion that
+        // times out but lands anyway would be pasted a second time, so give
+        // it Accessibility's full default (0 restores it).
+        AXUIElementSetMessagingTimeout(field, 0)
         var settable = DarwinBoolean(false)
         guard
             AXUIElementIsAttributeSettable(

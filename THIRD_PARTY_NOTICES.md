@@ -69,4 +69,10 @@ The converted repository metadata and the NVIDIA base model identify the governi
 
 There is an upstream inconsistency: the converted repository's metadata says `cc-by-4.0`, while a sentence in its model-card License section says “Apache 2.0.” Because the NVIDIA base model is CC BY 4.0 and the converted repository metadata agrees, Reco conservatively treats the model as CC BY 4.0. Distributors who plan to bundle or mirror the weights should seek clarification from Fluid Inference and retain the CC BY attribution unless the rights holder resolves the discrepancy.
 
-FluidAudio 0.15.5 resolves model artifacts from the Hugging Face repository's `main` branch. The model revision is therefore not locked by Reco's `Package.resolved`; distributors that require reproducible or audited artifacts should pin and verify the model separately.
+## Parakeet CTC 110M model
+
+For vocabulary boosting, Reco asks FluidAudio to download [FluidInference/parakeet-ctc-110m-coreml](https://huggingface.co/FluidInference/parakeet-ctc-110m-coreml) at runtime. The weights are not stored in this repository or bundled with the application.
+
+Attribution: NVIDIA Parakeet TDT-CTC 110M, converted to Core ML by the Fluid Inference Community. The converted model is based on [nvidia/parakeet-tdt_ctc-110m](https://huggingface.co/nvidia/parakeet-tdt_ctc-110m). Reco downloads the converted artifacts as published and does not modify the weights. Both the converted repository metadata and the NVIDIA base model identify the license as [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).
+
+For both models, FluidAudio 0.15.5 resolves artifacts from each Hugging Face repository's `main` branch. The model revision is therefore not locked by Reco's `Package.resolved`; distributors that require reproducible or audited artifacts should pin and verify the model separately.
